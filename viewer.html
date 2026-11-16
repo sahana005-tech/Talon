@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Talon Report Viewer</title>
+<!--
+  Talon report viewer: one self-contained file, no dependencies, no network.
+  Open it in a browser and drop in a report.json from talon_runs/<run>/.
+  It is READ-ONLY by design: scans are only ever started from the CLI, behind
+  the deliberate --authorize gesture. Every value from the report is rendered
+  with textContent, never innerHTML, because reports contain attack strings.
+-->
+<style>
+:root{
+  --bg:#f4f4f2; --panel:#ffffff; --ink:#161616; --mute:#6b6b6b; --line:#d9d9d6;
+  --soft:#ecece9; --shadow:#161616;
+  --crit:#d92d20; --high:#e8590c; --med:#d99a00; --low:#2f6fde; --none:#8a8a8a;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:ui-rounded,"SF Pro Rounded",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#121212; --panel:#1c1c1c; --ink:#f1f1ef; --mute:#9a9a9a; --line:#333;
+    --soft:#262626; --shadow:#000;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#121212; --panel:#1c1c1c; --ink:#f1f1ef; --mute:#9a9a9a; --line:#333;
+  --soft:#262626; --shadow:#000;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 var(--sans);
+  min-height:100vh;overflow-x:hidden}
+.wrap{max-width:980px;margin:0 auto;padding:24px 16px 80px}
+
+/* ---------- header ---------- */
+header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:22px}
+.owl{width:64px;height:64px;flex:none;cursor:pointer}
+.owl .body{fill:var(--ink)} .owl .eye{fill:var(--panel)} .owl .pupil{fill:var(--ink)}
+.owl .beak{fill:var(--mute)}
+.owl .lid{fill:var(--ink);transform-origin:center;transform:scaleY(0);
+  transform-box:fill-box;animation:blink 5s infinite}
+@keyframes blink{0%,92%,100%{transform:scaleY(0)}95%{transform:scaleY(1)}}
+.owl.hoot{animation:hop .5s cubic-bezier(.3,1.6,.5,1)}
+@keyframes hop{40%{transform:translateY(-10px) rotate(-6deg)}70%{transform:translateY(0) rotate(4deg)}}
+h1{font-size:26px;margin:0;letter-spacing:-.02em}
+.tag{color:var(--mute);font-size:14px}
+.grow{flex:1}
+
+/* ---------- playful buttons ---------- */
+.btn{font:600 15px var(--sans);color:var(--ink);background:var(--panel);
+  border:2px solid var(--ink);border-radius:14px;padding:9px 16px;cursor:pointer;
+  box-shadow:0 4px 0 var(--shadow);transition:transform .12s,box-shadow .12s,background .15s;
+  user-select:none}
+.btn:hover{transform:translateY(-2px) rotate(-1.5deg);box-shadow:0 6px 0 var(--shadow)}
+.btn:active{transform:translateY(4px);box-shadow:0 0 0 var(--shadow)}
+.btn:focus-visible{outline:3px solid var(--mute);outline-offset:3px}
+.btn.on{background:var(--ink);color:var(--panel)}
+.btn.small{font-size:13px;padding:5px 11px;border-radius:10px;box-shadow:0 3px 0 var(--shadow)}
+
+/* ---------- drop zone ---------- */
+#drop{border:3px dashed var(--line);border-radius:26px;padding:56px 20px;text-align:center;
+  background:var(--panel);transition:border-color .2s,transform .2s}
+#drop.over{border-color:var(--ink);transform:scale(1.015)}
+#drop .big{font-size:22px;font-weight:700;margin:14px 0 4px}
+#drop p{color:var(--mute);margin:0 0 20px}
+.radar{width:120px;height:120px;margin:0 auto;display:block}
+.radar circle{fill:none;stroke:var(--line);stroke-width:2}
+.radar .sweep{stroke:var(--ink);stroke-width:3;stroke-linecap:round;
+  transform-origin:60px 60px;animation:spin 3s linear infinite}
+.radar .blip{fill:var(--ink);animation:blip 3s infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes blip{0%,20%{opacity:0;r:2}30%{opacity:1;r:5}70%,100%{opacity:0;r:2}}
+#err{color:var(--crit);font-weight:600;min-height:1.5em;margin-top:14px}
+
+/* ---------- report ---------- */
+#report{display:none}
+.meta{color:var(--mute);font-size:14px;margin:-8px 0 18px;overflow-wrap:anywhere}
+.warn{border:2px solid var(--high);border-radius:14px;padding:10px 14px;margin-bottom:18px;
+  background:var(--panel);font-weight:600}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:26px}
+.tile{background:var(--panel);border:2px solid var(--ink);border-radius:18px;padding:14px 16px;
+  box-shadow:0 4px 0 var(--shadow);animation:pop .5s cubic-bezier(.3,1.5,.5,1) both}
+.tile b{display:block;font-size:30px;line-height:1.1;font-variant-numeric:tabular-nums}
+.tile span{color:var(--mute);font-size:13px}
+@keyframes pop{from{opacity:0;transform:translateY(14px) scale(.92)}}
+h2{font-size:18px;margin:30px 0 12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+
+/* phase rail */
+.rail{display:flex;align-items:center;gap:0;margin-bottom:12px}
+.node{flex:none;width:74px;text-align:center;font:700 12px var(--mono);color:var(--mute)}
+.node i{display:block;width:34px;height:34px;margin:0 auto 6px;border-radius:50%;
+  border:2px solid var(--line);background:var(--panel);transition:all .35s cubic-bezier(.3,1.6,.5,1)}
+.node.lit{color:var(--ink)} .node.lit i{border-color:var(--ink);background:var(--ink);transform:scale(1.15)}
+.node.now i{animation:pulse 1s infinite}
+@keyframes pulse{50%{box-shadow:0 0 0 9px color-mix(in srgb,var(--ink) 15%,transparent)}}
+.link{flex:1;height:2px;background:var(--line);position:relative;margin-bottom:22px;overflow:hidden}
+.link::after{content:"";position:absolute;inset:0;background:var(--ink);transform:scaleX(0);
+  transform-origin:left;transition:transform .5s}
+.link.lit::after{transform:scaleX(1)}
+#trace{background:var(--panel);border:2px solid var(--line);border-radius:16px;padding:12px 14px;
+  font:13px/1.6 var(--mono);max-height:260px;overflow:auto;overflow-wrap:anywhere}
+#trace div{animation:slide .3s both} #trace .ph{font-weight:700}
+#trace .hit{border-left:3px solid var(--ink);padding-left:8px}
+@keyframes slide{from{opacity:0;transform:translateX(-10px)}}
+
+/* findings */
+.card{background:var(--panel);border:2px solid var(--line);border-radius:18px;margin-bottom:12px;
+  overflow:hidden;animation:pop .45s cubic-bezier(.3,1.4,.5,1) both;transition:border-color .2s}
+.card:hover,.card.open{border-color:var(--ink)}
+.head{display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;width:100%;
+  background:none;border:0;color:inherit;font:inherit;text-align:left}
+.head:focus-visible{outline:3px solid var(--mute);outline-offset:-3px}
+.chip{flex:none;font:700 12px var(--mono);color:#fff;padding:4px 10px;border-radius:999px;
+  background:var(--sev);min-width:74px;text-align:center}
+.title{flex:1;min-width:0} .title b{display:block}
+.title small{color:var(--mute);font:12px var(--mono);overflow-wrap:anywhere}
+.score{flex:none;width:86px;text-align:right;font:700 15px var(--mono)}
+.bar{height:6px;background:var(--soft);border-radius:3px;margin-top:5px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--sev);border-radius:3px;width:0;transition:width .9s cubic-bezier(.2,.8,.2,1)}
+.conf{flex:none;font:600 11px var(--mono);border:1.5px solid var(--mute);color:var(--mute);
+  border-radius:8px;padding:2px 7px}
+.conf.v{border-color:var(--ink);color:var(--ink)}
+.caret{flex:none;transition:transform .25s;color:var(--mute)}
+.card.open .caret{transform:rotate(90deg)}
+.detail{display:grid;grid-template-rows:0fr;transition:grid-template-rows .35s ease}
+.card.open .detail{grid-template-rows:1fr}
+.inner{overflow:hidden;min-height:0} .pad{padding:2px 16px 16px;border-top:1px dashed var(--line)}
+.pad h3{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);margin:14px 0 4px;
+  display:flex;align-items:center;gap:10px}
+.pad p{margin:0;overflow-wrap:anywhere}
+pre{background:var(--soft);border-radius:12px;padding:12px;margin:0;font:12.5px/1.55 var(--mono);
+  white-space:pre-wrap;overflow-wrap:anywhere}
+.empty{color:var(--mute);text-align:center;padding:30px;border:2px dashed var(--line);border-radius:18px}
+footer{margin-top:40px;color:var(--mute);font-size:13px;text-align:center}
+@media (max-width:560px){.score{width:58px}.conf{display:none}.node{width:58px}}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <svg class="owl" id="owl" viewBox="0 0 64 64" role="img" aria-label="Talon owl">
+      <path class="body" d="M10 14 L18 22 Q32 12 46 22 L54 14 Q58 34 52 46 Q44 60 32 60 Q20 60 12 46 Q6 34 10 14Z"/>
+      <circle class="eye" cx="23" cy="32" r="9"/><circle class="eye" cx="41" cy="32" r="9"/>
+      <circle class="pupil" id="p1" cx="23" cy="32" r="4"/><circle class="pupil" id="p2" cx="41" cy="32" r="4"/>
+      <circle class="lid" cx="23" cy="32" r="9.3"/><circle class="lid" cx="41" cy="32" r="9.3"/>
+      <path class="beak" d="M29 39 L35 39 L32 45Z"/>
+    </svg>
+    <div><h1>Talon</h1><div class="tag">report viewer · read-only</div></div>
+    <div class="grow"></div>
+    <button class="btn small" id="theme" title="Switch light / dark">◐ theme</button>
+    <button class="btn small" id="another" hidden>↺ another report</button>
+  </header>
+
+  <section id="drop">
+    <svg class="radar" viewBox="0 0 120 120" aria-hidden="true">
+      <circle cx="60" cy="60" r="54"/><circle cx="60" cy="60" r="36"/><circle cx="60" cy="60" r="18"/>
+      <line class="sweep" x1="60" y1="60" x2="60" y2="8"/>
+      <circle class="blip" cx="84" cy="38" r="3"/>
+    </svg>
+    <div class="big">Drop a report.json here</div>
+    <p>from <code>talon_runs/&lt;run&gt;/</code>. Nothing leaves your machine.</p>
+    <button class="btn" id="pick">Choose file…</button>
+    <input type="file" id="file" accept=".json,application/json" hidden>
+    <div id="err" role="alert"></div>
+  </section>
+
+  <section id="report">
+    <div class="meta" id="meta"></div>
+    <div id="warn"></div>
+    <div class="tiles" id="tiles"></div>
+
+    <h2>Agent trace <button class="btn small" id="replay">▶ replay</button></h2>
+    <div class="rail" id="rail"></div>
+    <div id="trace" aria-live="off"></div>
+
+    <h2>Findings <span class="grow"></span>
+      <button class="btn small on" data-f="all">all</button>
+      <button class="btn small" data-f="validated">validated</button>
+      <button class="btn small" data-f="probable">probable</button>
+    </h2>
+    <div id="cards"></div>
+  </section>
+
+  <footer>Talon viewer shows finished runs only. Scans start from the CLI with <code>--authorize</code>.</footer>
+</div>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const el = (tag, cls, text) => {           // text always goes through textContent
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = String(text);
+  return n;
+};
+const SEV = {Critical: "--crit", High: "--high", Medium: "--med", Low: "--low", None: "--none"};
+const PHASES = ["PLAN", "MAP", "TEST", "GATE"];
+const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+let data = null, filter = "all", timer = null;
+
+/* ---------- owl: pupils follow the pointer, click to hop ---------- */
+addEventListener("pointermove", (e) => {
+  const r = $("#owl").getBoundingClientRect();
+  const dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+  const d = Math.hypot(dx, dy) || 1, k = Math.min(3.5, d / 40);
+  for (const id of ["#p1", "#p2"]) $(id).setAttribute("transform", `translate(${dx / d * k} ${dy / d * k})`);
+});
+$("#owl").addEventListener("click", () => {
+  const o = $("#owl"); o.classList.remove("hoot"); void o.getBoundingClientRect(); o.classList.add("hoot");
+});
+
+/* ---------- theme ---------- */
+$("#theme").addEventListener("click", () => {
+  const root = document.documentElement;
+  const dark = root.dataset.theme ? root.dataset.theme === "dark"
+                                  : matchMedia("(prefers-color-scheme: dark)").matches;
+  root.dataset.theme = dark ? "light" : "dark";
+});
+
+/* ---------- loading ---------- */
+const drop = $("#drop");
+$("#pick").addEventListener("click", () => $("#file").click());
+$("#file").addEventListener("change", (e) => e.target.files[0] && read(e.target.files[0]));
+["dragenter", "dragover"].forEach((t) => addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((t) => addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+addEventListener("drop", (e) => e.dataTransfer.files[0] && read(e.dataTransfer.files[0]));
+$("#another").addEventListener("click", () => {
+  clearInterval(timer); $("#report").style.display = "none"; drop.style.display = "";
+  $("#another").hidden = true; $("#file").value = "";
+});
+
+function read(file) {
+  $("#err").textContent = "";
+  file.text().then((txt) => {
+    let d;
+    try { d = JSON.parse(txt); } catch { throw new Error("That file is not valid JSON."); }
+    if (!d || !Array.isArray(d.validated) || !Array.isArray(d.probable))
+      throw new Error("That JSON is not a Talon report (no validated/probable lists).");
+    data = d; show();
+  }).catch((e) => { $("#err").textContent = e.message; $("#report").style.display = "none"; drop.style.display = ""; });
+}
+
+/* ---------- render ---------- */
+function show() {
+  drop.style.display = "none"; $("#report").style.display = "block"; $("#another").hidden = false;
+  const s = data.stats || {};
+  $("#meta").textContent = `${(data.targets || []).join(", ") || "unknown target"} · generated ${data.generated || "?"}`
+    + ` · LLM ${s.llm_used ? "on" : "off"}`;
+  const w = $("#warn"); w.replaceChildren();
+  if (s.budget_exhausted) w.append(el("div", "warn", "⚠ Partial scan: the request budget ran out before every surface was tested."));
+
+  const tiles = $("#tiles"); tiles.replaceChildren();
+  [[data.validated.length, "validated"], [data.probable.length, "probable"],
+   [s.surfaces_tested ?? "–", "surfaces"], [s.requests_made ?? "–", "requests"],
+   [s.duration_s != null ? s.duration_s + "s" : "–", "duration"]].forEach(([v, label], i) => {
+    const t = el("div", "tile"); t.style.animationDelay = i * 70 + "ms";
+    const b = el("b", null, v); t.append(b, el("span", null, label)); tiles.append(t);
+    if (typeof v === "number" && !calm) countUp(b, v);
+  });
+  cards(); trace();
+}
+
+function countUp(node, to) {
+  const t0 = performance.now(), dur = 700;
+  (function step(t) {
+    const p = Math.min(1, (t - t0) / dur);
+    node.textContent = Math.round(to * (1 - Math.pow(1 - p, 3)));
+    if (p < 1) requestAnimationFrame(step);
+  })(t0);
+}
+
+function cards() {
+  const box = $("#cards"); box.replaceChildren();
+  const list = [...data.validated, ...data.probable].filter((f) => filter === "all" || f.confidence === filter);
+  if (!list.length) { box.append(el("div", "empty", filter === "all" ? "No findings in this run." : `No ${filter} findings.`)); return; }
+  list.forEach((f, i) => {
+    const card = el("div", "card"); card.style.animationDelay = i * 60 + "ms";
+    card.style.setProperty("--sev", `var(${SEV[f.severity] || "--none"})`);
+    const head = el("button", "head"); head.setAttribute("aria-expanded", "false");
+    const title = el("div", "title");
+    title.append(el("b", null, f.name), el("small", null, f.url + (f.parameter ? `  [${f.parameter}]` : "")));
+    const score = el("div", "score", `CVSS ${f.cvss_score}`);
+    const bar = el("div", "bar"), fill = el("i"); bar.append(fill); score.append(bar);
+    const conf = el("span", "conf" + (f.confidence === "validated" ? " v" : ""), f.confidence);
+    head.append(el("span", "chip", f.severity), title, conf, score, el("span", "caret", "▶"));
+
+    const pad = el("div", "pad");
+    const block = (label, text, mono) => {
+      if (!text) return;
+      const h = el("h3", null, label); pad.append(h);
+      if (mono) {
+        const b = el("button", "btn small", "copy");
+        b.addEventListener("click", () => navigator.clipboard.writeText(text).then(
+          () => { b.textContent = "copied ✓"; setTimeout(() => (b.textContent = "copy"), 1200); },
+          () => (b.textContent = "copy failed")));
+        h.append(b); pad.append(el("pre", null, text));
+      } else pad.append(el("p", null, text));
+    };
+    block("Description", f.description);
+    block("Evidence", f.evidence);
+    block("Proof of concept", f.poc, true);
+    block("Remediation", f.remediation);
+    block("Classification", [f.cwe, f.cvss_vector].filter(Boolean).join("  ·  "));
+    const inner = el("div", "inner"); inner.append(pad);
+    const detail = el("div", "detail"); detail.append(inner);
+    head.addEventListener("click", () => head.setAttribute("aria-expanded", card.classList.toggle("open")));
+    card.append(head, detail); box.append(card);
+    setTimeout(() => (fill.style.width = Math.min(100, (f.cvss_score || 0) * 10) + "%"), 150 + i * 60);
+  });
+}
+document.querySelectorAll("[data-f]").forEach((b) => b.addEventListener("click", () => {
+  filter = b.dataset.f;
+  document.querySelectorAll("[data-f]").forEach((x) => x.classList.toggle("on", x === b));
+  cards();
+}));
+
+/* ---------- agent trace: lines stream in, phases light up ---------- */
+function trace() {
+  clearInterval(timer);
+  const rail = $("#rail"), out = $("#trace"); rail.replaceChildren(); out.replaceChildren();
+  const nodes = {}, links = [];
+  PHASES.forEach((p, i) => {
+    if (i) { const l = el("div", "link"); links.push(l); rail.append(l); }
+    const n = el("div", "node"); n.append(el("i"), document.createTextNode(p)); nodes[p] = n; rail.append(n);
+  });
+  const lines = data.reasoning || [];
+  if (!lines.length) { out.append(el("div", null, "(this report has no trace)")); return; }
+  let i = 0;
+  const step = () => {
+    if (i >= lines.length) { clearInterval(timer); PHASES.forEach((p) => nodes[p].classList.remove("now")); return; }
+    const line = lines[i++], phase = PHASES.find((p) => line.startsWith(p));
+    if (phase) {
+      const at = PHASES.indexOf(phase);
+      PHASES.forEach((p, k) => { nodes[p].classList.toggle("lit", k <= at); nodes[p].classList.toggle("now", k === at); });
+      links.forEach((l, k) => l.classList.toggle("lit", k < at));
+    }
+    const cut = line.indexOf(":");
+    const row = el("div", /VALIDATED/.test(line) ? "hit" : null);
+    if (phase && cut > 0) row.append(el("span", "ph", line.slice(0, cut + 1)), document.createTextNode(line.slice(cut + 1)));
+    else row.textContent = line;
+    out.append(row); out.scrollTop = out.scrollHeight;
+  };
+  if (calm) { while (i < lines.length) step(); step(); }
+  else { step(); timer = setInterval(step, 380); }
+}
+$("#replay").addEventListener("click", () => data && trace());
+</script>
+</body>
+</html>

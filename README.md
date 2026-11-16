@@ -27,7 +27,7 @@ hand to a program is one you can stand behind.
 Pure Python standard library (3.9+). Nothing to `pip install`.
 
 ```bash
-git clone <this repo> && cd talon
+git clone https://github.com/sahana005-tech/Talon.git && cd Talon
 python3 -m talon --help
 ```
 
@@ -35,7 +35,7 @@ python3 -m talon --help
 
 | Check | CWE | How it's validated | Default CVSS |
 |-------|-----|--------------------|--------------|
-| **Reflected XSS** | CWE-79 | Injects a canary with `< > " '`; confirms it reflects into HTML **unencoded** | 6.1 Medium |
+| **Reflected XSS** | CWE-79 | Injects a canary with `< > " '`, works out the context (HTML text, attribute, script string), then confirms a matching breakout payload reflects **verbatim** | 6.1 Medium |
 | **Open Redirect** | CWE-601 | Injects an external canary host; confirms a **3xx `Location`** points to it | 4.7 Medium |
 | **IDOR / BOLA** | CWE-639 | Two accounts: proves account **B** can read account **A**'s object, that the endpoint distinguishes valid vs bogus IDs, and that the object is **not public** (unauthenticated control request) | 6.5 Medium |
 
@@ -78,13 +78,34 @@ Each run writes to `talon_runs/<timestamp>/` (or `--out DIR`):
   summarises impact and *offers* full PoCs rather than dumping exploits on
   first contact — the way that keeps you welcome in a program.
 
+## Report viewer
+
+`viewer.html` is a single self-contained page (no dependencies, no network)
+that turns a `report.json` into an interactive view:
+
+```bash
+open viewer.html        # then drop in talon_runs/<run>/report.json
+```
+
+- Summary tiles, findings sorted by severity, and a filter for validated vs
+  probable.
+- Click a finding to expand its description, evidence, copyable PoC and
+  remediation.
+- The agent trace replays line by line while the `PLAN → MAP → TEST → GATE`
+  rail lights up.
+- Light and dark themes; severity is the only colour.
+
+The viewer is read-only on purpose: scans only ever start from the CLI, behind
+`--authorize`. Report text is rendered as plain text, never as HTML, because
+reports contain attack strings.
+
 ## The agent
 
 One orchestrating agent runs a `PLAN → MAP → TEST → GATE` loop:
 
 - **PLAN** — seeds + (optional) LLM-suggested parameter names.
 - **MAP** — same-origin crawl building an attack-surface inventory (links,
-  forms, query params).
+  query params, GET and POST form fields).
 - **TEST** — every enabled check against every surface.
 - **GATE** — dedupe; split *validated* (has PoC) from *probable*.
 
@@ -124,7 +145,8 @@ or local model is plenty.
   by resolving the hostname, so a public name pointing at a private address is
   still blocked.
 - Rate-limited (`--rate`) and hard request cap (`--max-requests`).
-- All payloads are non-destructive (inert markup, read-only GETs).
+- All payloads are non-destructive (inert markup). POST forms are only
+  probed for reflected XSS; redirect and IDOR checks never submit them.
 
 ## Extending it (add a 4th class)
 
@@ -146,7 +168,7 @@ python3 -m unittest tests.test_core -v
 - SQLi (boolean/error differential) and SSRF (callback-based) checks.
 - **Source-aware mode for Dolibarr**: feed a known access-control bug, let
   Semgrep + triage generalise it into variants — pairs with this runtime engine.
-- Authenticated crawling (login flow) and form-body injection.
+- Authenticated crawling (login flow).
 - Submission adapters (HackerOne / Bugcrowd / email) behind the disclosure draft.
 
 ## License
