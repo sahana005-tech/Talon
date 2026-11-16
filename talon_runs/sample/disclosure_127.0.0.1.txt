@@ -1,0 +1,22 @@
+[no security.txt found — confirm the contact before sending]
+
+To: security@127.0.0.1  (NO security.txt found — verify this address)
+Subject: Security disclosure: 3 validated vulnerabilities in 127.0.0.1 (3×Medium)
+
+Hello,
+
+I'm Sahana H B and I'd like to responsibly disclose 3 security issues I identified and verified on 127.0.0.1. Please let me know your preferred process for handling this report.
+
+Summary of validated findings (each reproduced with a proof-of-concept):
+  1. Insecure Direct Object Reference (BOLA) (Medium, CVSS 6.5) — http://127.0.0.1:8000/profile [param: id]
+  2. Reflected Cross-Site Scripting (Medium, CVSS 6.1) — http://127.0.0.1:8000/search [param: q]
+  3. Open Redirect (Medium, CVSS 4.7) — http://127.0.0.1:8000/go [param: url]
+
+I have working, non-destructive proof-of-concept requests and a full technical report (impact, reproduction steps, CVSS, remediation) ready to share through whatever secure channel you prefer. I have not accessed or retained any data beyond what was necessary to confirm each issue, and I have not disclosed this to anyone else.
+
+I'm happy to assist with verification and retesting after a fix. I'll follow coordinated disclosure and won't publish any details without your go-ahead.
+
+Thank you for your time and for running a channel for reports like this.
+
+Best regards,
+Sahana H B

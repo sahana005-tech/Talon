@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.DS_Store
+# API keys live here; never commit
+.env
+# scan output (keep only the bundled sample)
+talon_runs/*
+!talon_runs/sample/

@@ -1,0 +1,74 @@
+{
+  "tool": "talon",
+  "version": "0.1.0",
+  "targets": [
+    "http://127.0.0.1:8000"
+  ],
+  "scope_hosts": [
+    "127.0.0.1"
+  ],
+  "generated": "2026-11-16T14:08:50Z",
+  "stats": {
+    "surfaces_tested": 4,
+    "requests_made": 11,
+    "duration_s": 0.01,
+    "llm_used": false
+  },
+  "validated": [
+    {
+      "check_id": "idor",
+      "name": "Insecure Direct Object Reference (BOLA)",
+      "url": "http://127.0.0.1:8000/profile",
+      "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+      "description": "Object referenced by 'id=1' is returned to identity 'bob' even though it belongs to 'alice'. The endpoint enforces no object-level authorization, so any authenticated user can read other users' records by changing the identifier (IDOR/BOLA).",
+      "evidence": "'alice' and 'bob' received byte-equivalent object-specific responses for id=1 (similarity 1.00), while a bogus id (7000004) returned HTTP 404 / distinct content \u2014 proving the response is object-specific, not a generic page.",
+      "poc": "As user 'bob' (not the owner), request:\n  GET http://127.0.0.1:8000/profile?id=1\n  -> HTTP 200 containing 'alice'-owned data.\n\ncurl -sS -i -H 'Cookie: session=bob' 'http://127.0.0.1:8000/profile?id=1'",
+      "remediation": "Enforce an authorization check on every object access: verify the authenticated principal owns or may access the requested object before returning it. Do not rely on the identifier being unguessable.",
+      "parameter": "id",
+      "confidence": "validated",
+      "cwe": "CWE-639",
+      "cvss_score": 6.5,
+      "severity": "Medium"
+    },
+    {
+      "check_id": "reflected-xss",
+      "name": "Reflected Cross-Site Scripting",
+      "url": "http://127.0.0.1:8000/search",
+      "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+      "description": "The 'q' parameter is reflected into the HTML response without output encoding, allowing arbitrary HTML/JavaScript injection that executes in the victim's browser (reflected XSS).",
+      "evidence": "Parameter 'q' reflected the injected markup 't5d02232f\"'><x>' into the HTML response body without entity-encoding (the characters < > \" ' survived intact). Reflection context excerpt: ...ults for: t5d02232f\"'><x></h2><p>No results.</p></body></html>...",
+      "poc": "GET http://127.0.0.1:8000/search?q=%22%3E%3Csvg+onload%3Dalert%28document.domain%29%3E\n\nOpen the URL above in a browser; the injected <svg onload> fires in the page's origin. Reproduce with:\ncurl -sS -i 'http://127.0.0.1:8000/search?q=%22%3E%3Csvg+onload%3Dalert%28document.domain%29%3E'",
+      "remediation": "Contextually output-encode the parameter when writing it into HTML (HTML-entity encode <, >, \", ', &). Prefer the framework's auto-escaping templating. Add a restrictive Content-Security-Policy as defence in depth.",
+      "parameter": "q",
+      "confidence": "validated",
+      "cwe": "CWE-79",
+      "cvss_score": 6.1,
+      "severity": "Medium"
+    },
+    {
+      "check_id": "open-redirect",
+      "name": "Open Redirect",
+      "url": "http://127.0.0.1:8000/go",
+      "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:N/A:N",
+      "description": "The 'url' parameter controls the redirect destination without validating it against an allow-list. An attacker can send victims a trusted-looking link that silently forwards them to an arbitrary external site (phishing, OAuth token theft).",
+      "evidence": "Request to http://127.0.0.1:8000/go?url=https%3A%2F%2Ftalon-oredir.example.com%2Fpoc returned HTTP 302 with Location: https://talon-oredir.example.com/poc \u2014 the server redirected to the attacker-controlled host 'talon-oredir.example.com'.",
+      "poc": "GET http://127.0.0.1:8000/go?url=https%3A%2F%2Ftalon-oredir.example.com%2Fpoc\n-> HTTP 302, Location: https://talon-oredir.example.com/poc\n\ncurl -sS -i 'http://127.0.0.1:8000/go?url=https%3A%2F%2Ftalon-oredir.example.com%2Fpoc'   # note: no -L, so the 3xx Location is visible",
+      "remediation": "Do not place user input directly in the redirect target. Validate against a server-side allow-list of permitted paths/hosts, or map an opaque key to the destination. If external redirects are required, show an interstitial.",
+      "parameter": "url",
+      "confidence": "validated",
+      "cwe": "CWE-601",
+      "cvss_score": 4.7,
+      "severity": "Medium"
+    }
+  ],
+  "probable": [],
+  "reasoning": [
+    "PLAN: 1 target(s); checks=['reflected-xss', 'open-redirect', 'idor']; identities=['alice', 'bob']",
+    "MAP: crawling in-scope attack surface...",
+    "MAP: 4 surface(s) discovered; 3 parameter(s).",
+    "TEST: [VALIDATED] Reflected Cross-Site Scripting @ http://127.0.0.1:8000/search param=q (CVSS 6.1)",
+    "TEST: [VALIDATED] Open Redirect @ http://127.0.0.1:8000/go param=url (CVSS 4.7)",
+    "TEST: [VALIDATED] Insecure Direct Object Reference (BOLA) @ http://127.0.0.1:8000/profile param=id (CVSS 6.5)",
+    "GATE: 3 validated (with PoC), 0 probable; 11 requests."
+  ]
+}
