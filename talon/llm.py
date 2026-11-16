@@ -61,6 +61,8 @@ class LLM:
 
     def _post(self, url: str, headers: dict, payload: dict) -> dict:
         data = json.dumps(payload).encode()
+        # Some providers' edges reject Python's default "Python-urllib" agent.
+        headers = {"user-agent": "Talon/0.1", **headers}
         req = urllib.request.Request(url, data=data, headers=headers, method="POST")
         with urllib.request.urlopen(req, timeout=60) as resp:
             return json.loads(resp.read().decode())
