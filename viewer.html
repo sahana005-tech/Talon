@@ -467,7 +467,11 @@ function accept(txt) {
     throw new Error("That JSON is not a Talon report (no validated/probable lists).");
   data = d; show();
 }
-const readFile = (f) => f.text().then(accept).catch((e) => fail(e.message));
+const readFile = (f) => {
+  if (/\.md$/i.test(f.name))
+    return fail("That is the .md report (for reading). Open report.json from the same folder instead.");
+  return f.text().then(accept).catch((e) => fail(e.message));
+};
 function readUrl(u, btn) {
   if (!/^https?:\/\//i.test(u)) return fail("Enter a full http(s) URL to a report.json.");
   const label = btn.textContent; btn.disabled = true; btn.textContent = "fetching…";
