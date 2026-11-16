@@ -5,124 +5,188 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Talon Report Viewer</title>
 <!--
-  Talon report viewer: one self-contained file, no dependencies, no network.
+  Talon report viewer: one self-contained file, no dependencies.
   Open it in a browser and drop in a report.json from talon_runs/<run>/.
   It is READ-ONLY by design: scans are only ever started from the CLI, behind
-  the deliberate --authorize gesture. Every value from the report is rendered
+  the deliberate --authorize gesture. Every value from a report is rendered
   with textContent, never innerHTML, because reports contain attack strings.
+  The only network request it can make is the one you ask for: fetching a
+  report.json from a URL (the "Try the sample" button, or the URL box).
 -->
 <style>
 :root{
-  --bg:#f4f4f2; --panel:#ffffff; --ink:#161616; --mute:#6b6b6b; --line:#d9d9d6;
-  --soft:#ecece9; --shadow:#161616;
-  --crit:#d92d20; --high:#e8590c; --med:#d99a00; --low:#2f6fde; --none:#8a8a8a;
+  --bg:#f3f3f1; --panel:#ffffff; --ink:#141414; --mute:#6a6a6a; --line:#d6d6d3;
+  --soft:#e9e9e6; --shadow:#141414;
   --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   --sans:ui-rounded,"SF Pro Rounded",system-ui,-apple-system,"Segoe UI",sans-serif;
 }
 @media (prefers-color-scheme:dark){
   :root:not([data-theme="light"]){
-    --bg:#121212; --panel:#1c1c1c; --ink:#f1f1ef; --mute:#9a9a9a; --line:#333;
+    --bg:#101010; --panel:#1b1b1b; --ink:#f2f2f0; --mute:#9b9b9b; --line:#343434;
     --soft:#262626; --shadow:#000;
   }
 }
 :root[data-theme="dark"]{
-  --bg:#121212; --panel:#1c1c1c; --ink:#f1f1ef; --mute:#9a9a9a; --line:#333;
+  --bg:#101010; --panel:#1b1b1b; --ink:#f2f2f0; --mute:#9b9b9b; --line:#343434;
   --soft:#262626; --shadow:#000;
 }
 *{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%}
+[hidden]{display:none!important}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 var(--sans);
   min-height:100vh;overflow-x:hidden}
-.wrap{max-width:980px;margin:0 auto;padding:24px 16px 80px}
+#sky{position:fixed;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;opacity:.55}
+.wrap{position:relative;z-index:1;max-width:1000px;margin:0 auto;padding:20px 16px 70px}
+code{font-family:var(--mono);font-size:.92em}
 
-/* ---------- header ---------- */
-header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:22px}
-.owl{width:64px;height:64px;flex:none;cursor:pointer}
-.owl .body{fill:var(--ink)} .owl .eye{fill:var(--panel)} .owl .pupil{fill:var(--ink)}
-.owl .beak{fill:var(--mute)}
-.owl .lid{fill:var(--ink);transform-origin:center;transform:scaleY(0);
-  transform-box:fill-box;animation:blink 5s infinite}
-@keyframes blink{0%,92%,100%{transform:scaleY(0)}95%{transform:scaleY(1)}}
-.owl.hoot{animation:hop .5s cubic-bezier(.3,1.6,.5,1)}
-@keyframes hop{40%{transform:translateY(-10px) rotate(-6deg)}70%{transform:translateY(0) rotate(4deg)}}
-h1{font-size:26px;margin:0;letter-spacing:-.02em}
-.tag{color:var(--mute);font-size:14px}
+/* ---------- top bar ---------- */
+.top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.brand{font-weight:800;font-size:20px;letter-spacing:-.02em}
 .grow{flex:1}
 
 /* ---------- playful buttons ---------- */
-.btn{font:600 15px var(--sans);color:var(--ink);background:var(--panel);
-  border:2px solid var(--ink);border-radius:14px;padding:9px 16px;cursor:pointer;
-  box-shadow:0 4px 0 var(--shadow);transition:transform .12s,box-shadow .12s,background .15s;
-  user-select:none}
-.btn:hover{transform:translateY(-2px) rotate(-1.5deg);box-shadow:0 6px 0 var(--shadow)}
-.btn:active{transform:translateY(4px);box-shadow:0 0 0 var(--shadow)}
-.btn:focus-visible{outline:3px solid var(--mute);outline-offset:3px}
-.btn.on{background:var(--ink);color:var(--panel)}
+.btn{font:700 15px var(--sans);color:var(--ink);background:var(--panel);
+  border:2px solid var(--ink);border-radius:14px;padding:10px 18px;cursor:pointer;
+  box-shadow:0 5px 0 var(--shadow);transition:transform .12s,box-shadow .12s,background .15s,color .15s;
+  user-select:none;text-decoration:none;display:inline-block}
+.btn:hover{transform:translateY(-3px) rotate(-2deg);box-shadow:0 8px 0 var(--shadow)}
+.btn:nth-of-type(even):hover{transform:translateY(-3px) rotate(2deg)}
+.btn:active{transform:translateY(5px) scale(.97);box-shadow:0 0 0 var(--shadow)}
+.btn:focus-visible,.flip:focus-visible,.node:focus-visible{outline:3px solid var(--mute);outline-offset:3px}
+.btn.on,.btn.primary{background:var(--ink);color:var(--panel)}
 .btn.small{font-size:13px;padding:5px 11px;border-radius:10px;box-shadow:0 3px 0 var(--shadow)}
+.btn.small:hover{box-shadow:0 5px 0 var(--shadow)}
+.btn[disabled]{opacity:.5;pointer-events:none}
 
-/* ---------- drop zone ---------- */
-#drop{border:3px dashed var(--line);border-radius:26px;padding:56px 20px;text-align:center;
-  background:var(--panel);transition:border-color .2s,transform .2s}
-#drop.over{border-color:var(--ink);transform:scale(1.015)}
-#drop .big{font-size:22px;font-weight:700;margin:14px 0 4px}
-#drop p{color:var(--mute);margin:0 0 20px}
-.radar{width:120px;height:120px;margin:0 auto;display:block}
-.radar circle{fill:none;stroke:var(--line);stroke-width:2}
-.radar .sweep{stroke:var(--ink);stroke-width:3;stroke-linecap:round;
-  transform-origin:60px 60px;animation:spin 3s linear infinite}
-.radar .blip{fill:var(--ink);animation:blip 3s infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-@keyframes blip{0%,20%{opacity:0;r:2}30%{opacity:1;r:5}70%,100%{opacity:0;r:2}}
-#err{color:var(--crit);font-weight:600;min-height:1.5em;margin-top:14px}
+/* ---------- hero ---------- */
+.hero{text-align:center;padding:26px 0 8px}
+.owl{width:150px;height:150px;cursor:pointer;display:block;margin:0 auto;
+  animation:bob 4s ease-in-out infinite}
+@keyframes bob{50%{transform:translateY(-8px)}}
+.owl .body{fill:var(--ink)} .owl .eye{fill:var(--panel)} .owl .pupil{fill:var(--ink)}
+.owl .beak{fill:var(--mute)} .owl .wing{fill:var(--ink);transform-box:fill-box}
+.owl .wl{transform-origin:100% 20%} .owl .wr{transform-origin:0% 20%}
+.owl .lid{fill:var(--ink);transform-origin:center;transform:scaleY(0);
+  transform-box:fill-box;animation:blink 5s infinite}
+@keyframes blink{0%,92%,100%{transform:scaleY(0)}95%{transform:scaleY(1)}}
+.owl.hoot{animation:hop .6s cubic-bezier(.3,1.6,.5,1)}
+.owl.hoot .wl{animation:flapL .3s 2} .owl.hoot .wr{animation:flapR .3s 2}
+@keyframes hop{40%{transform:translateY(-22px) rotate(-5deg)}70%{transform:translateY(0) rotate(3deg)}}
+@keyframes flapL{50%{transform:rotate(38deg)}} @keyframes flapR{50%{transform:rotate(-38deg)}}
+.hoots{height:22px;color:var(--mute);font:600 13px var(--mono)}
+h1{font-size:clamp(44px,9vw,84px);line-height:1;margin:6px 0 8px;letter-spacing:-.045em}
+h1 span{display:inline-block;animation:drop .7s cubic-bezier(.3,1.6,.5,1) both}
+@keyframes drop{from{opacity:0;transform:translateY(-40px) rotate(-12deg)}}
+.lead{font-size:clamp(17px,2.6vw,21px);max-width:620px;margin:0 auto 6px;text-wrap:balance}
+.typed{font:600 16px var(--mono);color:var(--mute);height:26px;margin-bottom:20px}
+.typed b{color:var(--ink)} .typed i{display:inline-block;width:9px;height:18px;background:var(--ink);
+  vertical-align:-3px;margin-left:2px;animation:cur 1s steps(2) infinite}
+@keyframes cur{50%{opacity:0}}
+.cta{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-bottom:14px}
+.urlrow{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:10px auto 0;max-width:560px}
+.urlrow input{flex:1;min-width:200px;font:14px var(--mono);padding:8px 12px;border-radius:12px;
+  border:2px solid var(--line);background:var(--panel);color:var(--ink)}
+.urlrow input:focus{outline:none;border-color:var(--ink)}
+#err{color:var(--ink);font-weight:700;min-height:1.5em;margin-top:10px}
+#err:not(:empty){animation:shake .4s}
+@keyframes shake{25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
+#veil{position:fixed;inset:0;z-index:5;display:none;place-items:center;
+  background:color-mix(in srgb,var(--bg) 88%,transparent);border:6px dashed var(--ink);
+  font:800 clamp(24px,5vw,44px) var(--sans)}
+body.over #veil{display:grid}
 
-/* ---------- report ---------- */
-#report{display:none}
-.meta{color:var(--mute);font-size:14px;margin:-8px 0 18px;overflow-wrap:anywhere}
-.warn{border:2px solid var(--high);border-radius:14px;padding:10px 14px;margin-bottom:18px;
-  background:var(--panel);font-weight:600}
-.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:26px}
-.tile{background:var(--panel);border:2px solid var(--ink);border-radius:18px;padding:14px 16px;
-  box-shadow:0 4px 0 var(--shadow);animation:pop .5s cubic-bezier(.3,1.5,.5,1) both}
-.tile b{display:block;font-size:30px;line-height:1.1;font-variant-numeric:tabular-nums}
-.tile span{color:var(--mute);font-size:13px}
-@keyframes pop{from{opacity:0;transform:translateY(14px) scale(.92)}}
-h2{font-size:18px;margin:30px 0 12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+/* marquee */
+.marq{margin:30px -16px;border-block:2px solid var(--ink);background:var(--ink);color:var(--panel);
+  overflow:hidden;white-space:nowrap;font:700 14px var(--mono);padding:8px 0;transform:rotate(-1deg)}
+.marq div{display:inline-block;animation:marq 26s linear infinite}
+.marq:hover div{animation-play-state:paused}
+@keyframes marq{to{transform:translateX(-50%)}}
 
-/* phase rail */
-.rail{display:flex;align-items:center;gap:0;margin-bottom:12px}
-.node{flex:none;width:74px;text-align:center;font:700 12px var(--mono);color:var(--mute)}
-.node i{display:block;width:34px;height:34px;margin:0 auto 6px;border-radius:50%;
+/* sections */
+h2{font-size:22px;margin:34px 0 4px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;letter-spacing:-.02em}
+.sub{color:var(--mute);margin:0 0 16px;font-size:15px}
+
+/* flip cards */
+.flips{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}
+.flip{perspective:900px;height:236px;background:none;border:0;padding:0;cursor:pointer;color:inherit;
+  font:inherit;text-align:left}
+.flip .in{position:relative;width:100%;height:100%;transition:transform .6s cubic-bezier(.3,1.3,.5,1);
+  transform-style:preserve-3d}
+.flip.on .in{transform:rotateY(180deg)}
+.flip:hover .in{transform:rotateY(12deg) translateY(-4px)} .flip.on:hover .in{transform:rotateY(168deg) translateY(-4px)}
+.face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;border:2px solid var(--ink);border-radius:20px;
+  padding:18px;background:var(--panel);box-shadow:0 6px 0 var(--shadow);display:flex;flex-direction:column}
+.face.back{transform:rotateY(180deg);background:var(--ink);color:var(--panel)}
+.face svg{width:44px;height:44px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;margin-bottom:10px}
+.face b{font-size:18px} .face small{font:600 11px var(--mono);opacity:.65}
+.face p{margin:6px 0 0;font-size:14.5px;line-height:1.45}
+.face .hint{margin-top:auto;font:600 12px var(--mono);opacity:.6}
+
+/* pipeline */
+.rail{display:flex;align-items:flex-start;margin:6px 0 12px}
+.node{flex:none;width:76px;text-align:center;font:700 12px var(--mono);color:var(--mute);background:none;
+  border:0;padding:0;cursor:pointer}
+.node i{display:block;width:40px;height:40px;margin:0 auto 6px;border-radius:50%;
   border:2px solid var(--line);background:var(--panel);transition:all .35s cubic-bezier(.3,1.6,.5,1)}
-.node.lit{color:var(--ink)} .node.lit i{border-color:var(--ink);background:var(--ink);transform:scale(1.15)}
+.node:hover i{transform:scale(1.2) rotate(8deg);border-color:var(--ink)}
+.node.lit{color:var(--ink)} .node.lit i{border-color:var(--ink);background:var(--ink);transform:scale(1.12)}
 .node.now i{animation:pulse 1s infinite}
-@keyframes pulse{50%{box-shadow:0 0 0 9px color-mix(in srgb,var(--ink) 15%,transparent)}}
-.link{flex:1;height:2px;background:var(--line);position:relative;margin-bottom:22px;overflow:hidden}
+@keyframes pulse{50%{box-shadow:0 0 0 10px color-mix(in srgb,var(--ink) 14%,transparent)}}
+.link{flex:1;height:2px;background:var(--line);position:relative;margin-top:20px;overflow:hidden}
 .link::after{content:"";position:absolute;inset:0;background:var(--ink);transform:scaleX(0);
   transform-origin:left;transition:transform .5s}
 .link.lit::after{transform:scaleX(1)}
+.explain{background:var(--panel);border:2px solid var(--ink);border-radius:18px;padding:14px 18px;
+  box-shadow:0 5px 0 var(--shadow);min-height:86px}
+.explain b{font:800 13px var(--mono)} .explain p{margin:4px 0 0}
+.explain.swap{animation:pop .4s cubic-bezier(.3,1.5,.5,1)}
+.rules{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+.rule{border:2px solid var(--line);border-radius:999px;padding:5px 13px;font-size:13.5px;background:var(--panel);
+  transition:transform .2s,border-color .2s} .rule:hover{transform:scale(1.07) rotate(-2deg);border-color:var(--ink)}
+
+/* ---------- report ---------- */
+#report{display:none}
+.meta{color:var(--mute);font-size:14px;margin:6px 0 18px;overflow-wrap:anywhere}
+.warn{border:2px solid var(--ink);border-radius:14px;padding:10px 14px;margin-bottom:18px;
+  background:var(--panel);font-weight:700}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:16px}
+.tile{background:var(--panel);border:2px solid var(--ink);border-radius:18px;padding:14px 16px;
+  box-shadow:0 5px 0 var(--shadow);animation:pop .5s cubic-bezier(.3,1.5,.5,1) both;transition:transform .2s}
+.tile:hover{transform:translateY(-4px) rotate(-1.5deg)}
+.tile b{display:block;font-size:32px;line-height:1.1;font-variant-numeric:tabular-nums}
+.tile span{color:var(--mute);font-size:13px}
+@keyframes pop{from{opacity:0;transform:translateY(14px) scale(.92)}}
+.mix{display:flex;height:16px;border-radius:8px;overflow:hidden;border:2px solid var(--ink);background:var(--soft)}
+.mix i{display:block;background:var(--sev);width:0;transition:width .9s cubic-bezier(.2,.8,.2,1)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font:600 12px var(--mono);color:var(--mute);margin-top:6px}
+.legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:3px;
+  background:var(--sev);border:1px solid var(--ink);margin-right:5px;vertical-align:-1px}
 #trace{background:var(--panel);border:2px solid var(--line);border-radius:16px;padding:12px 14px;
   font:13px/1.6 var(--mono);max-height:260px;overflow:auto;overflow-wrap:anywhere}
 #trace div{animation:slide .3s both} #trace .ph{font-weight:700}
 #trace .hit{border-left:3px solid var(--ink);padding-left:8px}
 @keyframes slide{from{opacity:0;transform:translateX(-10px)}}
-
-/* findings */
+.tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.tools input{flex:1;min-width:160px;font:14px var(--sans);padding:7px 12px;border-radius:12px;
+  border:2px solid var(--line);background:var(--panel);color:var(--ink)}
+.tools input:focus{outline:none;border-color:var(--ink)}
 .card{background:var(--panel);border:2px solid var(--line);border-radius:18px;margin-bottom:12px;
-  overflow:hidden;animation:pop .45s cubic-bezier(.3,1.4,.5,1) both;transition:border-color .2s}
-.card:hover,.card.open{border-color:var(--ink)}
+  overflow:hidden;animation:pop .45s cubic-bezier(.3,1.4,.5,1) both;transition:border-color .2s,transform .2s,box-shadow .2s}
+.card:hover{border-color:var(--ink);transform:translateX(4px)}
+.card.open{border-color:var(--ink);box-shadow:0 5px 0 var(--shadow)}
 .head{display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;width:100%;
   background:none;border:0;color:inherit;font:inherit;text-align:left}
 .head:focus-visible{outline:3px solid var(--mute);outline-offset:-3px}
-.chip{flex:none;font:700 12px var(--mono);color:#fff;padding:4px 10px;border-radius:999px;
-  background:var(--sev);min-width:74px;text-align:center}
+.chip{flex:none;font:700 12px var(--mono);padding:4px 10px;border-radius:999px;border:2px solid var(--ink);
+  background:var(--sev);color:var(--sevtext);min-width:112px;text-align:center}
 .title{flex:1;min-width:0} .title b{display:block}
 .title small{color:var(--mute);font:12px var(--mono);overflow-wrap:anywhere}
 .score{flex:none;width:86px;text-align:right;font:700 15px var(--mono)}
 .bar{height:6px;background:var(--soft);border-radius:3px;margin-top:5px;overflow:hidden}
-.bar i{display:block;height:100%;background:var(--sev);border-radius:3px;width:0;transition:width .9s cubic-bezier(.2,.8,.2,1)}
-.conf{flex:none;font:600 11px var(--mono);border:1.5px solid var(--mute);color:var(--mute);
+.bar i{display:block;height:100%;background:var(--ink);border-radius:3px;width:0;transition:width .9s cubic-bezier(.2,.8,.2,1)}
+.conf{flex:none;font:600 11px var(--mono);border:1.5px dashed var(--mute);color:var(--mute);
   border-radius:8px;padding:2px 7px}
-.conf.v{border-color:var(--ink);color:var(--ink)}
+.conf.v{border:1.5px solid var(--ink);color:var(--ink)}
 .caret{flex:none;transition:transform .25s;color:var(--mute)}
 .card.open .caret{transform:rotate(90deg)}
 .detail{display:grid;grid-template-rows:0fr;transition:grid-template-rows .35s ease}
@@ -134,58 +198,92 @@ h2{font-size:18px;margin:30px 0 12px;display:flex;align-items:center;gap:10px;fl
 pre{background:var(--soft);border-radius:12px;padding:12px;margin:0;font:12.5px/1.55 var(--mono);
   white-space:pre-wrap;overflow-wrap:anywhere}
 .empty{color:var(--mute);text-align:center;padding:30px;border:2px dashed var(--line);border-radius:18px}
-footer{margin-top:40px;color:var(--mute);font-size:13px;text-align:center}
-@media (max-width:560px){.score{width:58px}.conf{display:none}.node{width:58px}}
-@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+footer{margin-top:44px;color:var(--mute);font-size:13px;text-align:center}
+.bit{position:fixed;z-index:9;width:10px;height:10px;pointer-events:none;border:1px solid var(--ink)}
+@media (max-width:560px){.score{width:58px}.conf{display:none}.node{width:60px}.chip{min-width:0}.chip em{display:none}}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}
+  html{scroll-behavior:auto}}
 </style>
 </head>
 <body>
+<canvas id="sky" aria-hidden="true"></canvas>
+<div id="veil">Let go to load the report</div>
 <div class="wrap">
-  <header>
-    <svg class="owl" id="owl" viewBox="0 0 64 64" role="img" aria-label="Talon owl">
-      <path class="body" d="M10 14 L18 22 Q32 12 46 22 L54 14 Q58 34 52 46 Q44 60 32 60 Q20 60 12 46 Q6 34 10 14Z"/>
-      <circle class="eye" cx="23" cy="32" r="9"/><circle class="eye" cx="41" cy="32" r="9"/>
-      <circle class="pupil" id="p1" cx="23" cy="32" r="4"/><circle class="pupil" id="p2" cx="41" cy="32" r="4"/>
-      <circle class="lid" cx="23" cy="32" r="9.3"/><circle class="lid" cx="41" cy="32" r="9.3"/>
-      <path class="beak" d="M29 39 L35 39 L32 45Z"/>
-    </svg>
-    <div><h1>Talon</h1><div class="tag">report viewer · read-only</div></div>
-    <div class="grow"></div>
+  <div class="top">
+    <span class="brand">Talon</span><span class="grow"></span>
     <button class="btn small" id="theme" title="Switch light / dark">◐ theme</button>
-    <button class="btn small" id="another" hidden>↺ another report</button>
-  </header>
+    <button class="btn small" id="another" hidden>← home</button>
+  </div>
 
-  <section id="drop">
-    <svg class="radar" viewBox="0 0 120 120" aria-hidden="true">
-      <circle cx="60" cy="60" r="54"/><circle cx="60" cy="60" r="36"/><circle cx="60" cy="60" r="18"/>
-      <line class="sweep" x1="60" y1="60" x2="60" y2="8"/>
-      <circle class="blip" cx="84" cy="38" r="3"/>
-    </svg>
-    <div class="big">Drop a report.json here</div>
-    <p>from <code>talon_runs/&lt;run&gt;/</code>. Nothing leaves your machine.</p>
-    <button class="btn" id="pick">Choose file…</button>
-    <input type="file" id="file" accept=".json,application/json" hidden>
-    <div id="err" role="alert"></div>
+  <!-- ================= landing ================= -->
+  <section id="home">
+    <div class="hero">
+      <svg class="owl" id="owl" viewBox="0 0 64 64" role="img" aria-label="Talon the owl. Click me.">
+        <path class="wing wl" d="M12 30 Q2 40 8 54 Q14 48 16 38Z"/>
+        <path class="wing wr" d="M52 30 Q62 40 56 54 Q50 48 48 38Z"/>
+        <path class="body" d="M10 14 L18 22 Q32 12 46 22 L54 14 Q58 34 52 46 Q44 60 32 60 Q20 60 12 46 Q6 34 10 14Z"/>
+        <circle class="eye" cx="23" cy="32" r="9"/><circle class="eye" cx="41" cy="32" r="9"/>
+        <circle class="pupil" id="p1" cx="23" cy="32" r="4"/><circle class="pupil" id="p2" cx="41" cy="32" r="4"/>
+        <circle class="lid" cx="23" cy="32" r="9.3"/><circle class="lid" cx="41" cy="32" r="9.3"/>
+        <path class="beak" d="M29 39 L35 39 L32 45Z"/>
+      </svg>
+      <div class="hoots" id="hoots" aria-live="polite"></div>
+      <h1 id="word" aria-label="Talon"></h1>
+      <p class="lead">A web vulnerability scanner that only reports what it can <b>prove</b>.
+        No proof of concept, no finding.</p>
+      <div class="typed">Talon <b id="typed"></b><i></i></div>
+      <div class="cta">
+        <button class="btn primary" id="pick">Open a report.json</button>
+        <button class="btn" id="sample">Try the sample</button>
+        <a class="btn" href="#how">How it works ↓</a>
+      </div>
+      <div class="sub">…or drag a <code>report.json</code> anywhere onto this page.</div>
+      <div class="urlrow">
+        <input id="url" type="url" placeholder="https://…/report.json" aria-label="Report URL">
+        <button class="btn small" id="fetch">fetch</button>
+      </div>
+      <input type="file" id="file" accept=".json,application/json" hidden>
+      <div id="err" role="alert"></div>
+    </div>
+
+    <div class="marq" aria-hidden="true"><div id="marq"></div></div>
+
+    <h2>What it hunts</h2>
+    <p class="sub">Three bug classes, done carefully. Tap a card to see how each one is proven.</p>
+    <div class="flips" id="flips"></div>
+
+    <h2 id="how">How one scan runs</h2>
+    <p class="sub">One agent, four phases. Click a phase.</p>
+    <div class="rail" id="demoRail"></div>
+    <div class="explain" id="explain"></div>
+    <div class="rules" id="rules"></div>
   </section>
 
+  <!-- ================= report ================= -->
   <section id="report">
     <div class="meta" id="meta"></div>
     <div id="warn"></div>
     <div class="tiles" id="tiles"></div>
+    <div class="mix" id="mix" role="img" aria-label="Findings by severity"></div>
+    <div class="legend" id="legend"></div>
 
     <h2>Agent trace <button class="btn small" id="replay">▶ replay</button></h2>
     <div class="rail" id="rail"></div>
     <div id="trace" aria-live="off"></div>
 
-    <h2>Findings <span class="grow"></span>
+    <h2>Findings</h2>
+    <div class="tools">
+      <input id="q" type="search" placeholder="Search findings…" aria-label="Search findings">
       <button class="btn small on" data-f="all">all</button>
       <button class="btn small" data-f="validated">validated</button>
       <button class="btn small" data-f="probable">probable</button>
-    </h2>
+      <button class="btn small" id="expand">expand all</button>
+    </div>
     <div id="cards"></div>
   </section>
 
-  <footer>Talon viewer shows finished runs only. Scans start from the CLI with <code>--authorize</code>.</footer>
+  <footer>This viewer shows finished runs only. Scans start from the CLI with <code>--authorize</code>,
+    on targets you own or are permitted to test.</footer>
 </div>
 
 <script>
@@ -197,21 +295,160 @@ const el = (tag, cls, text) => {           // text always goes through textConte
   if (text != null) n.textContent = String(text);
   return n;
 };
-const SEV = {Critical: "--crit", High: "--high", Medium: "--med", Low: "--low", None: "--none"};
+const SAMPLE = "https://raw.githubusercontent.com/sahana005-tech/Talon/main/talon_runs/sample/report.json";
 const PHASES = ["PLAN", "MAP", "TEST", "GATE"];
+// Greyscale severity: shade (share of ink) plus pips, so it never relies on hue.
+const SEV = {Critical: [100, "●●●●"], High: [72, "●●●○"], Medium: [44, "●●○○"], Low: [18, "●○○○"], None: [0, "○○○○"]};
+const sevStyle = (node, sev) => {
+  const pct = (SEV[sev] || SEV.None)[0];
+  node.style.setProperty("--sev", `color-mix(in srgb, var(--ink) ${pct}%, var(--panel))`);
+  node.style.setProperty("--sevtext", pct >= 44 ? "var(--panel)" : "var(--ink)");
+};
 const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
-let data = null, filter = "all", timer = null;
+let data = null, filter = "all", query = "", timer = null;
 
-/* ---------- owl: pupils follow the pointer, click to hop ---------- */
+/* ---------- background: drifting constellation that leans toward the pointer ---------- */
+const sky = $("#sky"), ctx = sky.getContext("2d");
+let W = 0, H = 0, mouse = {x: -999, y: -999}, stars = [];
+function resize() {
+  const r = devicePixelRatio || 1; W = innerWidth; H = innerHeight;
+  sky.width = W * r; sky.height = H * r; ctx.setTransform(r, 0, 0, r, 0, 0);
+  const n = Math.min(90, Math.round(W * H / 16000));
+  stars = Array.from({length: n}, () => ({x: Math.random() * W, y: Math.random() * H,
+    vx: (Math.random() - .5) * .35, vy: (Math.random() - .5) * .35}));
+}
+function draw() {
+  const ink = getComputedStyle(document.documentElement).getPropertyValue("--ink").trim();
+  ctx.clearRect(0, 0, W, H); ctx.fillStyle = ink; ctx.strokeStyle = ink;
+  for (const s of stars) {
+    s.x += s.vx; s.y += s.vy;
+    if (s.x < 0 || s.x > W) s.vx *= -1;
+    if (s.y < 0 || s.y > H) s.vy *= -1;
+    const dm = Math.hypot(s.x - mouse.x, s.y - mouse.y);
+    if (dm < 150) { s.x += (mouse.x - s.x) * .004; s.y += (mouse.y - s.y) * .004; }
+    ctx.globalAlpha = .5; ctx.beginPath(); ctx.arc(s.x, s.y, 1.6, 0, 7); ctx.fill();
+    if (dm < 150) { ctx.globalAlpha = .35 * (1 - dm / 150); ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(mouse.x, mouse.y); ctx.stroke(); }
+  }
+  for (let i = 0; i < stars.length; i++) for (let j = i + 1; j < stars.length; j++) {
+    const a = stars[i], b = stars[j], d = Math.hypot(a.x - b.x, a.y - b.y);
+    if (d < 110) { ctx.globalAlpha = .16 * (1 - d / 110); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
+  }
+  if (!calm) requestAnimationFrame(draw);
+}
+addEventListener("resize", resize); resize(); draw();
+
+/* ---------- owl: eyes follow the pointer, click to flap and hoot ---------- */
 addEventListener("pointermove", (e) => {
+  mouse = {x: e.clientX, y: e.clientY};
   const r = $("#owl").getBoundingClientRect();
   const dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
   const d = Math.hypot(dx, dy) || 1, k = Math.min(3.5, d / 40);
   for (const id of ["#p1", "#p2"]) $(id).setAttribute("transform", `translate(${dx / d * k} ${dy / d * k})`);
 });
-$("#owl").addEventListener("click", () => {
+const HOOTS = ["hoo.", "hoo hoo!", "who goes there?", "no PoC, no finding.", "I only report what I can prove.",
+               "authorized targets only, please.", "stop poking me.", "…fine. hoo."];
+let hootN = 0;
+$("#owl").addEventListener("click", (e) => {
   const o = $("#owl"); o.classList.remove("hoot"); void o.getBoundingClientRect(); o.classList.add("hoot");
+  $("#hoots").textContent = HOOTS[hootN++ % HOOTS.length];
+  burst(e.clientX, e.clientY, 10);
 });
+
+/* ---------- little greyscale confetti ---------- */
+function burst(x, y, n) {
+  if (calm) return;
+  for (let i = 0; i < n; i++) {
+    const b = el("div", "bit"), a = Math.random() * 6.28, d = 60 + Math.random() * 130;
+    const shade = Math.round(Math.random() * 100);
+    b.style.cssText = `left:${x}px;top:${y}px;background:color-mix(in srgb,var(--ink) ${shade}%,var(--panel));`
+      + `border-radius:${Math.random() < .5 ? "50%" : "2px"}`;
+    document.body.append(b);
+    b.animate([{transform: "translate(0,0) rotate(0)", opacity: 1},
+               {transform: `translate(${Math.cos(a) * d}px,${Math.sin(a) * d + 90}px) rotate(${Math.random() * 720}deg)`, opacity: 0}],
+              {duration: 800 + Math.random() * 500, easing: "cubic-bezier(.2,.7,.3,1)"}).onfinish = () => b.remove();
+  }
+}
+document.addEventListener("click", (e) => { if (e.target.closest(".btn")) burst(e.clientX, e.clientY, 6); });
+
+/* ---------- hero text ---------- */
+[..."Talon"].forEach((c, i) => { const s = el("span", null, c); s.style.animationDelay = i * 90 + "ms"; $("#word").append(s); });
+const LINES = ["maps the site.", "tests every input.", "proves each bug with a request.", "scores it with CVSS.",
+               "drafts the disclosure email.", "stays quiet when it can't prove it."];
+(function type(li = 0, ci = 0, del = false) {
+  const t = $("#typed"), line = LINES[li];
+  if (calm) { t.textContent = LINES[2]; return; }
+  t.textContent = line.slice(0, ci);
+  let wait = del ? 28 : 55;
+  if (!del && ci === line.length) { del = true; wait = 1500; }
+  else if (del && ci === 0) { del = false; li = (li + 1) % LINES.length; wait = 300; }
+  else ci += del ? -1 : 1;
+  setTimeout(() => type(li, ci, del), wait);
+})();
+$("#marq").textContent = ("NO PoC, NO FINDING  ✦  AUTHORIZED USE ONLY  ✦  PROVE IT OR PARK IT  ✦  ZERO DEPENDENCIES  ✦  "
+  + "STAYS ON THE ORIGIN YOU NAME  ✦  ").repeat(4);
+
+/* ---------- what it hunts: flip cards ---------- */
+const ICON = {
+  xss: "M8 6 L2 12 L8 18 M16 6 L22 12 L16 18 M13.5 4 L10.5 20",
+  redir: "M4 12 H14 M10 6 L16 12 L10 18 M20 4 V20",
+  idor: "M7 11 V8 a5 5 0 0 1 10 0 V11 M5 11 H19 V21 H5 Z M12 15 V17.5",
+};
+const HUNTS = [
+  ["xss", "Reflected XSS", "CWE-79", "A page echoes your input back without escaping it, so a crafted link can run script in a visitor's browser.",
+   "Talon sends a harmless marker, reads back exactly which characters survived, works out where it landed (text, attribute or script), then confirms a matching payload comes back untouched."],
+  ["redir", "Open redirect", "CWE-601", "A link on a trusted site forwards visitors to any address an attacker chooses. Handy for phishing.",
+   "Talon points the parameter at a reserved test domain and does not follow redirects. A 3xx response whose Location is that domain is the proof."],
+  ["idor", "IDOR / broken access", "CWE-639", "Change a number in the URL and read somebody else's record, because the server never checks who is asking.",
+   "With two test accounts, Talon shows both receive the same private object, that a made-up ID is rejected, and that a logged-out request is refused."],
+];
+HUNTS.forEach(([icon, name, cwe, what, how]) => {
+  const card = el("button", "flip"); card.setAttribute("aria-pressed", "false");
+  const inn = el("div", "in"), front = el("div", "face"), back = el("div", "face back");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg"); svg.setAttribute("viewBox", "0 0 24 24");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path"); path.setAttribute("d", ICON[icon]); svg.append(path);
+  front.append(svg, el("b", null, name), el("small", null, cwe), el("p", null, what), el("span", "hint", "tap: how it's proven ↻"));
+  back.append(el("b", null, "How Talon proves it"), el("p", null, how), el("span", "hint", "tap to flip back ↻"));
+  inn.append(front, back); card.append(inn);
+  card.addEventListener("click", () => card.setAttribute("aria-pressed", card.classList.toggle("on")));
+  $("#flips").append(card);
+});
+
+/* ---------- pipeline explainer ---------- */
+const ABOUT = {
+  PLAN: "Reads your targets and settings. An optional language model may suggest extra parameter names to try, but it can never create a finding.",
+  MAP: "Crawls the site, staying on the exact origin you named, and lists every link parameter and form field it finds.",
+  TEST: "Runs each check against each input. A check must reproduce the issue with a real request before it can call it validated.",
+  GATE: "Removes duplicates and splits results: validated findings carry a proof of concept, the rest are parked as probable for a human to review.",
+};
+function buildRail(rail, onPick) {
+  rail.replaceChildren(); const nodes = {}, links = [];
+  PHASES.forEach((p, i) => {
+    if (i) { const l = el("div", "link"); links.push(l); rail.append(l); }
+    const n = el(onPick ? "button" : "div", "node"); n.append(el("i"), document.createTextNode(p));
+    if (onPick) n.addEventListener("click", () => onPick(p, true));
+    nodes[p] = n; rail.append(n);
+  });
+  const light = (phase, live) => {
+    const at = PHASES.indexOf(phase);
+    PHASES.forEach((p, k) => { nodes[p].classList.toggle("lit", k <= at); nodes[p].classList.toggle("now", live && k === at); });
+    links.forEach((l, k) => l.classList.toggle("lit", k < at));
+  };
+  return light;
+}
+let demoAuto = null, demoAt = 0;
+const demoLight = buildRail($("#demoRail"), (p, byUser) => {
+  if (byUser) clearInterval(demoAuto);
+  demoLight(p, true);
+  const box = $("#explain"); box.replaceChildren(el("b", null, p), el("p", null, ABOUT[p]));
+  box.classList.remove("swap"); void box.offsetWidth; box.classList.add("swap");
+});
+(function () {           // auto-cycle until the user clicks a phase themselves
+  const show = () => { const p = PHASES[demoAt++ % 4]; demoLight(p, true);
+    $("#explain").replaceChildren(el("b", null, p), el("p", null, ABOUT[p])); };
+  show(); if (!calm) demoAuto = setInterval(show, 3200);
+})();
+["Needs --authorize to run", "Stays on the origin you name", "Cloud metadata always blocked", "Rate-limited, capped requests",
+ "Harmless payloads only", "Pure Python, nothing to install"].forEach((t) => $("#rules").append(el("span", "rule", t)));
 
 /* ---------- theme ---------- */
 $("#theme").addEventListener("click", () => {
@@ -221,33 +458,45 @@ $("#theme").addEventListener("click", () => {
   root.dataset.theme = dark ? "light" : "dark";
 });
 
-/* ---------- loading ---------- */
-const drop = $("#drop");
+/* ---------- loading a report ---------- */
+const fail = (msg) => { $("#err").textContent = ""; void $("#err").offsetWidth; $("#err").textContent = msg; };
+function accept(txt) {
+  let d;
+  try { d = JSON.parse(txt); } catch { throw new Error("That is not valid JSON."); }
+  if (!d || !Array.isArray(d.validated) || !Array.isArray(d.probable))
+    throw new Error("That JSON is not a Talon report (no validated/probable lists).");
+  data = d; show();
+}
+const readFile = (f) => f.text().then(accept).catch((e) => fail(e.message));
+function readUrl(u, btn) {
+  if (!/^https?:\/\//i.test(u)) return fail("Enter a full http(s) URL to a report.json.");
+  const label = btn.textContent; btn.disabled = true; btn.textContent = "fetching…";
+  fetch(u, {credentials: "omit"}).then((r) => { if (!r.ok) throw new Error(`Could not fetch that URL (HTTP ${r.status}).`); return r.text(); })
+    .then(accept)
+    .catch((e) => fail(e instanceof TypeError ? "Could not reach that URL (offline, or the site blocks cross-origin requests)." : e.message))
+    .finally(() => { btn.disabled = false; btn.textContent = label; });
+}
 $("#pick").addEventListener("click", () => $("#file").click());
-$("#file").addEventListener("change", (e) => e.target.files[0] && read(e.target.files[0]));
-["dragenter", "dragover"].forEach((t) => addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
-["dragleave", "drop"].forEach((t) => addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
-addEventListener("drop", (e) => e.dataTransfer.files[0] && read(e.dataTransfer.files[0]));
+$("#file").addEventListener("change", (e) => e.target.files[0] && readFile(e.target.files[0]));
+$("#sample").addEventListener("click", (e) => readUrl(SAMPLE, e.currentTarget));
+$("#fetch").addEventListener("click", (e) => readUrl($("#url").value.trim(), e.currentTarget));
+$("#url").addEventListener("keydown", (e) => e.key === "Enter" && $("#fetch").click());
+let depth = 0;
+addEventListener("dragenter", (e) => { e.preventDefault(); depth++; document.body.classList.add("over"); });
+addEventListener("dragover", (e) => e.preventDefault());
+addEventListener("dragleave", () => { if (--depth <= 0) { depth = 0; document.body.classList.remove("over"); } });
+addEventListener("drop", (e) => { e.preventDefault(); depth = 0; document.body.classList.remove("over");
+  e.dataTransfer.files[0] && readFile(e.dataTransfer.files[0]); });
 $("#another").addEventListener("click", () => {
-  clearInterval(timer); $("#report").style.display = "none"; drop.style.display = "";
-  $("#another").hidden = true; $("#file").value = "";
+  clearInterval(timer); $("#report").style.display = "none"; $("#home").style.display = "";
+  $("#another").hidden = true; $("#file").value = ""; $("#err").textContent = ""; scrollTo(0, 0);
 });
 
-function read(file) {
-  $("#err").textContent = "";
-  file.text().then((txt) => {
-    let d;
-    try { d = JSON.parse(txt); } catch { throw new Error("That file is not valid JSON."); }
-    if (!d || !Array.isArray(d.validated) || !Array.isArray(d.probable))
-      throw new Error("That JSON is not a Talon report (no validated/probable lists).");
-    data = d; show();
-  }).catch((e) => { $("#err").textContent = e.message; $("#report").style.display = "none"; drop.style.display = ""; });
-}
-
-/* ---------- render ---------- */
+/* ---------- render a report ---------- */
 function show() {
-  drop.style.display = "none"; $("#report").style.display = "block"; $("#another").hidden = false;
-  const s = data.stats || {};
+  $("#home").style.display = "none"; $("#report").style.display = "block"; $("#another").hidden = false;
+  $("#err").textContent = ""; scrollTo(0, 0); burst(innerWidth / 2, 120, 36);
+  const s = data.stats || {}, all = [...data.validated, ...data.probable];
   $("#meta").textContent = `${(data.targets || []).join(", ") || "unknown target"} · generated ${data.generated || "?"}`
     + ` · LLM ${s.llm_used ? "on" : "off"}`;
   const w = $("#warn"); w.replaceChildren();
@@ -261,9 +510,17 @@ function show() {
     const b = el("b", null, v); t.append(b, el("span", null, label)); tiles.append(t);
     if (typeof v === "number" && !calm) countUp(b, v);
   });
+
+  const mix = $("#mix"), legend = $("#legend"); mix.replaceChildren(); legend.replaceChildren();
+  Object.keys(SEV).forEach((sev) => {
+    const n = all.filter((f) => f.severity === sev).length; if (!n) return;
+    const seg = el("i"); sevStyle(seg, sev); seg.title = `${sev}: ${n}`; mix.append(seg);
+    setTimeout(() => (seg.style.width = n / all.length * 100 + "%"), 200);
+    const lg = el("span", null, `${sev} ${n}`); sevStyle(lg, sev); legend.append(lg);
+  });
+  mix.style.display = all.length ? "" : "none";
   cards(); trace();
 }
-
 function countUp(node, to) {
   const t0 = performance.now(), dur = 700;
   (function step(t) {
@@ -272,22 +529,23 @@ function countUp(node, to) {
     if (p < 1) requestAnimationFrame(step);
   })(t0);
 }
-
 function cards() {
   const box = $("#cards"); box.replaceChildren();
-  const list = [...data.validated, ...data.probable].filter((f) => filter === "all" || f.confidence === filter);
-  if (!list.length) { box.append(el("div", "empty", filter === "all" ? "No findings in this run." : `No ${filter} findings.`)); return; }
+  const list = [...data.validated, ...data.probable].filter((f) =>
+    (filter === "all" || f.confidence === filter) &&
+    (!query || [f.name, f.url, f.parameter, f.severity, f.cwe, f.description].join(" ").toLowerCase().includes(query)));
+  if (!list.length) { box.append(el("div", "empty", query ? "Nothing matches that search." : filter === "all" ? "No findings in this run." : `No ${filter} findings.`)); return; }
   list.forEach((f, i) => {
     const card = el("div", "card"); card.style.animationDelay = i * 60 + "ms";
-    card.style.setProperty("--sev", `var(${SEV[f.severity] || "--none"})`);
     const head = el("button", "head"); head.setAttribute("aria-expanded", "false");
+    const chip = el("span", "chip"); sevStyle(chip, f.severity);
+    chip.append(document.createTextNode(f.severity + " "), el("em", null, (SEV[f.severity] || SEV.None)[1]));
     const title = el("div", "title");
     title.append(el("b", null, f.name), el("small", null, f.url + (f.parameter ? `  [${f.parameter}]` : "")));
     const score = el("div", "score", `CVSS ${f.cvss_score}`);
     const bar = el("div", "bar"), fill = el("i"); bar.append(fill); score.append(bar);
     const conf = el("span", "conf" + (f.confidence === "validated" ? " v" : ""), f.confidence);
-    head.append(el("span", "chip", f.severity), title, conf, score, el("span", "caret", "▶"));
-
+    head.append(chip, title, conf, score, el("span", "caret", "▶"));
     const pad = el("div", "pad");
     const block = (label, text, mono) => {
       if (!text) return;
@@ -317,27 +575,25 @@ document.querySelectorAll("[data-f]").forEach((b) => b.addEventListener("click",
   document.querySelectorAll("[data-f]").forEach((x) => x.classList.toggle("on", x === b));
   cards();
 }));
+$("#q").addEventListener("input", (e) => { query = e.target.value.trim().toLowerCase(); cards(); });
+$("#expand").addEventListener("click", (e) => {
+  const open = e.currentTarget.textContent === "expand all";
+  document.querySelectorAll(".card").forEach((c) => { c.classList.toggle("open", open); c.firstChild.setAttribute("aria-expanded", open); });
+  e.currentTarget.textContent = open ? "collapse all" : "expand all";
+});
 
 /* ---------- agent trace: lines stream in, phases light up ---------- */
 function trace() {
   clearInterval(timer);
-  const rail = $("#rail"), out = $("#trace"); rail.replaceChildren(); out.replaceChildren();
-  const nodes = {}, links = [];
-  PHASES.forEach((p, i) => {
-    if (i) { const l = el("div", "link"); links.push(l); rail.append(l); }
-    const n = el("div", "node"); n.append(el("i"), document.createTextNode(p)); nodes[p] = n; rail.append(n);
-  });
+  const out = $("#trace"); out.replaceChildren();
+  const light = buildRail($("#rail"));
   const lines = data.reasoning || [];
   if (!lines.length) { out.append(el("div", null, "(this report has no trace)")); return; }
   let i = 0;
   const step = () => {
-    if (i >= lines.length) { clearInterval(timer); PHASES.forEach((p) => nodes[p].classList.remove("now")); return; }
+    if (i >= lines.length) { clearInterval(timer); light("GATE", false); return; }
     const line = lines[i++], phase = PHASES.find((p) => line.startsWith(p));
-    if (phase) {
-      const at = PHASES.indexOf(phase);
-      PHASES.forEach((p, k) => { nodes[p].classList.toggle("lit", k <= at); nodes[p].classList.toggle("now", k === at); });
-      links.forEach((l, k) => l.classList.toggle("lit", k < at));
-    }
+    if (phase) light(phase, true);
     const cut = line.indexOf(":");
     const row = el("div", /VALIDATED/.test(line) ? "hit" : null);
     if (phase && cut > 0) row.append(el("span", "ph", line.slice(0, cut + 1)), document.createTextNode(line.slice(cut + 1)));

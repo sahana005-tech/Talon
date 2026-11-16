@@ -80,12 +80,17 @@ Each run writes to `talon_runs/<timestamp>/` (or `--out DIR`):
 
 ## Report viewer
 
-`viewer.html` is a single self-contained page (no dependencies, no network)
-that turns a `report.json` into an interactive view:
+`viewer.html` is a single self-contained page (no dependencies, no build step)
+that explains what Talon does and turns a `report.json` into an interactive
+view:
 
 ```bash
 open viewer.html        # then drop in talon_runs/<run>/report.json
 ```
+
+No report yet? Click **Try the sample**, which fetches the bundled sample
+report from this repository. That, and the optional "fetch a report URL" box,
+are the only network requests the page can make.
 
 - Summary tiles, findings sorted by severity, and a filter for validated vs
   probable.
@@ -93,7 +98,8 @@ open viewer.html        # then drop in talon_runs/<run>/report.json
   remediation.
 - The agent trace replays line by line while the `PLAN → MAP → TEST → GATE`
   rail lights up.
-- Light and dark themes; severity is the only colour.
+- Search, expand-all, and light and dark themes, all in greyscale (severity
+  is shown by shade and pips, not hue).
 
 The viewer is read-only on purpose: scans only ever start from the CLI, behind
 `--authorize`. Report text is rendered as plain text, never as HTML, because
