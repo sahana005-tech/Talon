@@ -48,6 +48,7 @@ def to_markdown(result: ScanResult) -> str:
       f"| **Requests:** {result.requests_made} "
       f"| **Duration:** {dur:.1f}s")
     a(f"- **LLM brain:** {'yes' if result.llm_used else 'no (deterministic)'}")
+    a(f"- **Crawl mode:** {'rendered — ' + str(result.rendered) + ' page(s) via headless browser' if result.rendered else 'raw HTML (stdlib)'}")
     if result.budget_exhausted:
         a("- **⚠️ Partial scan:** the request budget was exhausted before all "
           "surfaces were tested. Re-run with a higher `--max-requests`.")
@@ -172,6 +173,7 @@ def to_json(result: ScanResult) -> str:
             "duration_s": round(result.finished - result.started, 2),
             "llm_used": result.llm_used,
             "budget_exhausted": result.budget_exhausted,
+            "pages_rendered": result.rendered,
         },
         "validated": [finding_dict(f) for f in result.validated],
         "probable": [finding_dict(f) for f in result.probable],

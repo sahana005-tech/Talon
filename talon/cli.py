@@ -72,6 +72,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--researcher", default="a security researcher",
                    help="Your name/handle for the disclosure email.")
     p.add_argument("--out", default=None, help="Output directory.")
+    p.add_argument("--render", action="store_true",
+                   help="Render pages in a headless browser so JavaScript runs "
+                        "before crawling (needed for React/Vue/Angular/SPA sites). "
+                        "Requires: pip install playwright && playwright install chromium.")
+    p.add_argument("--render-wait", type=int, default=1500, metavar="MS",
+                   help="Milliseconds to let each page settle after load (render mode).")
     p.add_argument("--quiet", action="store_true", help="Suppress live agent trace.")
     return p
 
@@ -102,17 +108,28 @@ def main(argv: list[str] | None = None) -> int:
     identities = _parse_identity(args.identity)
     llm = LLM()
 
+    if args.render:
+        from .browser import available as _render_available
+        if not _render_available():
+            print("\n  ⛔ --render needs Playwright, which is not installed. Set it up:\n"
+                  "       pip install playwright\n"
+                  "       python3 -m playwright install chromium\n"
+                  "     Or run without --render (stdlib crawler, raw HTML only).\n",
+                  file=sys.stderr)
+            return 4
+
     print("  ┌─ Talon v0.1 ─ validation-first web vuln agent")
     print(f"  │  {scope.banner()}")
     print(f"  │  checks: {', '.join(check_ids)}")
     print(f"  │  llm:    {llm.provider + '/' + llm.model if llm.enabled else 'off (deterministic)'}")
+    print(f"  │  crawl:  {'rendered (headless Chromium)' if args.render else 'raw HTML (stdlib)'}")
     print("  └─ starting\n")
 
     logger = (lambda m: None) if args.quiet else (lambda m: print(f"    · {m}"))
     agent = Agent(
         scope, checks=check_ids, identities=identities,
         max_pages=args.max_pages, rate=args.rate, max_requests=args.max_requests,
-        llm=llm, logger=logger,
+        llm=llm, render=args.render, render_wait=args.render_wait, logger=logger,
     )
     result = agent.scan(targets)
 

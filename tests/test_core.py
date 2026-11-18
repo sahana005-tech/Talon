@@ -6,6 +6,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
 
 import talon.scope as scope_mod
+from talon import browser
 from talon.agent import Agent
 from talon.llm import LLM
 from talon.report import disclosure
@@ -239,6 +240,55 @@ class TestScopeOrigin(unittest.TestCase):
                 s.check_url("http://meta.example/")
         finally:
             scope_mod.socket.getaddrinfo = orig
+
+
+_SHELL = """<!doctype html><html><body><div id=app>Loading…</div><script>
+setTimeout(function(){document.getElementById('app').innerHTML =
+  '<a href="/search?q=hi">s</a>';}, 20);
+</script></body></html>"""
+
+
+class _SpaApp(BaseHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+    def do_GET(self):
+        u = urlparse(self.path); q = parse_qs(u.query, keep_blank_values=True)
+        if u.path == "/":
+            body = _SHELL
+        elif u.path == "/search":
+            body = f"<html><body><p>{q.get('q', [''])[0]}</p></body></html>"   # VULN: unescaped
+        else:
+            body = "<h1>404</h1>"
+        data = body.encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers(); self.wfile.write(data)
+
+
+@unittest.skipUnless(browser.available(), "Playwright not installed; render mode skipped")
+class TestRenderMode(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.server = HTTPServer(("127.0.0.1", 0), _SpaApp)
+        cls.base = f"http://127.0.0.1:{cls.server.server_address[1]}"
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown(); cls.server.server_close()
+
+    def test_render_finds_js_built_surface_that_stdlib_misses(self):
+        scope = Scope.from_targets([self.base], authorized=True, allow_local=True)
+        # Stdlib crawl sees only the empty shell: no link, nothing to test.
+        plain = Agent(scope, checks=["reflected-xss"], rate=0).scan([self.base])
+        self.assertEqual(len(plain.validated), 0)
+        # Render mode runs the JS, discovers /search, and validates the XSS.
+        rendered = Agent(scope, checks=["reflected-xss"], rate=0, render=True,
+                         render_wait=400).scan([self.base])
+        self.assertGreaterEqual(rendered.rendered, 1)
+        self.assertEqual({f.url.rsplit("/", 1)[-1] for f in rendered.validated}, {"search"})
 
 
 class TestLlmProvider(unittest.TestCase):

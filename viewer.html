@@ -502,7 +502,8 @@ function show() {
   $("#err").textContent = ""; scrollTo(0, 0); burst(innerWidth / 2, 120, 36);
   const s = data.stats || {}, all = [...data.validated, ...data.probable];
   $("#meta").textContent = `${(data.targets || []).join(", ") || "unknown target"} · generated ${data.generated || "?"}`
-    + ` · LLM ${s.llm_used ? "on" : "off"}`;
+    + ` · LLM ${s.llm_used ? "on" : "off"}`
+    + ` · crawl ${s.pages_rendered ? "rendered (" + s.pages_rendered + " pages)" : "raw HTML"}`;
   const w = $("#warn"); w.replaceChildren();
   if (s.budget_exhausted) w.append(el("div", "warn", "⚠ Partial scan: the request budget ran out before every surface was tested."));
 

@@ -37,6 +37,7 @@ class ScanResult:
     finished: float = 0.0
     llm_used: bool = False
     budget_exhausted: bool = False   # True -> scan stopped early; results partial
+    rendered: int = 0                # pages rendered with a headless browser (render mode)
 
 
 class Agent:
@@ -50,6 +51,8 @@ class Agent:
         rate: float = 0.5,
         max_requests: int = 500,
         llm: LLM | None = None,
+        render: bool = False,
+        render_wait: int = 1500,
         logger=None,
     ):
         self.scope = scope
@@ -59,6 +62,8 @@ class Agent:
         self.rate = rate
         self.max_requests = max_requests
         self.llm = llm or LLM()
+        self.render = render            # render JS with a headless browser first
+        self.render_wait = render_wait  # ms to let a page settle after load
         self._log = logger or (lambda m: None)
         self.reasoning: list[str] = []
 
@@ -85,9 +90,22 @@ class Agent:
                         f"for param suggestion + summary.")
 
         # MAP
-        self._think("MAP: crawling in-scope attack surface...")
-        crawler = Crawler(client, self.scope, max_pages=self.max_pages)
-        surfaces = crawler.crawl(targets)
+        if self.render:
+            from .browser import BrowserCrawler, RenderError
+            self._think("MAP: rendering pages in headless Chromium, then reading "
+                        "the live DOM for links and forms...")
+            crawler = BrowserCrawler(client, self.scope, max_pages=self.max_pages,
+                                     rate=self.rate, settle_ms=self.render_wait)
+            try:
+                surfaces = crawler.crawl(targets)
+                result.rendered = crawler.pages_rendered
+                self._think(f"MAP: rendered {crawler.pages_rendered} page(s) with JS.")
+            except RenderError as e:
+                raise RenderError(str(e)) from None
+        else:
+            self._think("MAP: crawling in-scope attack surface (raw HTML)...")
+            crawler = Crawler(client, self.scope, max_pages=self.max_pages)
+            surfaces = crawler.crawl(targets)
         if crawler.budget_exhausted:
             result.budget_exhausted = True
             self._think(f"MAP: request budget ({self.max_requests}) exhausted while "

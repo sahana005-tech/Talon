@@ -22,14 +22,63 @@ reproduce it with a single request.** Everything else is parked under
 "probable" for manual review, with no PoC claimed. That means the report you
 hand to a program is one you can stand behind.
 
-## Zero dependencies
+## Zero dependencies (by default)
 
-Pure Python standard library (3.9+). Nothing to `pip install`.
+The scanner and the report viewer are pure Python standard library (3.9+) and
+plain HTML — nothing to `pip install`.
 
 ```bash
 git clone https://github.com/sahana005-tech/Talon.git && cd Talon
 python3 -m talon --help
 ```
+
+The **one** optional add-on is render mode (see below), for scanning
+JavaScript-heavy sites. Everything else stays dependency-free.
+
+## Scanning modern (JavaScript) sites — `--render`
+
+Most sites today are built with a frontend framework (React, Vue, Angular,
+Next, Svelte…): the server sends a near-empty HTML shell and the page is built
+by JavaScript in the browser. The default crawler reads raw HTML, so on those
+sites it sees the empty shell and finds little.
+
+`--render` fixes that. It loads each in-scope page in a **headless browser**,
+lets the JavaScript run, then reads the live DOM for links and forms — the real
+attack surface. The vulnerability checks are unchanged: they still send plain
+HTTP requests, so every finding's proof is still a reproducible request. The
+browser is used only to *discover* what to test.
+
+One-time setup:
+
+```bash
+pip install playwright
+python3 -m playwright install chromium   # ~150 MB browser download, once
+```
+
+Then just add the flag:
+
+```bash
+python3 -m talon --target https://your-app.com --authorize --render
+```
+
+See it on the bundled single-page-app demo (its links/forms are built by JS):
+
+```bash
+python3 demo/spa_app.py &                                   # 127.0.0.1:8020
+python3 -m talon -t http://127.0.0.1:8020 --authorize --allow-local            # finds nothing
+python3 -m talon -t http://127.0.0.1:8020 --authorize --allow-local --render   # finds all three
+```
+
+Notes & limits:
+- Rendering a page **runs that site's JavaScript on your machine**. Only point
+  `--render` at targets you are authorized to test.
+- The browser stays scope-locked: it only navigates to in-scope origins (a
+  page's own CDN scripts are allowed to load so it can render, but are never
+  crawled or tested).
+- `--render-wait MS` controls how long each page is given to settle after load
+  (default 1500 ms). Slow apps may need more.
+- It still does not log in for you or execute click-only flows; it scans what
+  rendering the page URL exposes.
 
 ## The three checks
 
