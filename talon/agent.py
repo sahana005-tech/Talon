@@ -38,6 +38,7 @@ class ScanResult:
     llm_used: bool = False
     budget_exhausted: bool = False   # True -> scan stopped early; results partial
     rendered: int = 0                # pages rendered with a headless browser (render mode)
+    surfaces: list = field(default_factory=list)  # inventory of what was tested
 
 
 class Agent:
@@ -113,6 +114,13 @@ class Agent:
         surfaces = self._augment_with_llm(surfaces)
         self._think(f"MAP: {len(surfaces)} surface(s) discovered; "
                     f"{sum(len(s.params) for s in surfaces)} parameter(s).")
+        result.surfaces = [
+            {"method": s.method, "url": s.url.split("?")[0], "params": sorted(s.params)}
+            for s in surfaces
+        ]
+        for s in result.surfaces:                       # make the surface visible
+            ps = ", ".join(s["params"]) or "(no params)"
+            self._think(f"MAP: surface  {s['method']:4} {s['url']}  [{ps}]")
 
         # TEST
         check_instances = [ALL_CHECKS[cid](client, context) for cid in self.check_ids]

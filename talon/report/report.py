@@ -99,6 +99,21 @@ def to_markdown(result: ScanResult) -> str:
         for i, f in enumerate(result.probable, 1):
             _render_finding(a, i, f, probable=True)
 
+    # Attack-surface inventory — what Talon actually tested (shown even when
+    # there are no findings, so a clean run is still legible).
+    if result.surfaces:
+        a("## Attack surface tested")
+        a("")
+        a(f"Talon probed {len(result.surfaces)} surface(s). A clean run means none "
+          f"of the three checks could prove an issue on these inputs.")
+        a("")
+        a("| Method | URL | Parameters |")
+        a("|--------|-----|------------|")
+        for s in result.surfaces:
+            ps = ", ".join(f"`{p}`" for p in s["params"]) or "—"
+            a(f"| {s['method']} | {s['url']} | {ps} |")
+        a("")
+
     # Agent reasoning trace (transparency)
     a("## Agent trace")
     a("")
@@ -175,6 +190,7 @@ def to_json(result: ScanResult) -> str:
             "budget_exhausted": result.budget_exhausted,
             "pages_rendered": result.rendered,
         },
+        "attack_surface": result.surfaces,
         "validated": [finding_dict(f) for f in result.validated],
         "probable": [finding_dict(f) for f in result.probable],
         "reasoning": result.reasoning,
