@@ -32,6 +32,7 @@ class ScanResult:
     probable: list[Finding] = field(default_factory=list)
     surfaces_tested: int = 0
     requests_made: int = 0
+    request_errors: int = 0          # requests that failed (e.g. throttling) -> possible misses
     reasoning: list[str] = field(default_factory=list)
     started: float = 0.0
     finished: float = 0.0
@@ -161,7 +162,12 @@ class Agent:
         result.validated.sort(key=lambda f: f.cvss_score, reverse=True)
         result.probable.sort(key=lambda f: f.cvss_score, reverse=True)
         result.requests_made = client.count
+        result.request_errors = client.errors
         result.finished = time.time()
+        if client.errors:
+            self._think(f"WARN: {client.errors} request(s) failed after retries "
+                        f"(often rate limiting). Some surfaces may be untested — "
+                        f"re-run with a higher --rate. Results may be incomplete.")
         self._think(f"GATE: {len(result.validated)} validated (with PoC), "
                     f"{len(result.probable)} probable; {client.count} requests."
                     + (" PARTIAL: request budget exhausted." if result.budget_exhausted else ""))

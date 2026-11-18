@@ -52,6 +52,10 @@ def to_markdown(result: ScanResult) -> str:
     if result.budget_exhausted:
         a("- **⚠️ Partial scan:** the request budget was exhausted before all "
           "surfaces were tested. Re-run with a higher `--max-requests`.")
+    if result.request_errors:
+        a(f"- **⚠️ {result.request_errors} request(s) failed** (after retries — "
+          f"often rate limiting). Some surfaces may be untested; re-run with a "
+          f"higher `--rate`. A clean result here is **not** conclusive.")
     a("")
     a("> **Authorized testing only.** This report documents issues Talon could "
       "reproduce against the scoped targets. Every *validated* finding below "
@@ -191,6 +195,7 @@ def to_json(result: ScanResult) -> str:
             "llm_used": result.llm_used,
             "budget_exhausted": result.budget_exhausted,
             "pages_rendered": result.rendered,
+            "request_errors": result.request_errors,
         },
         "attack_surface": result.surfaces,
         "validated": [finding_dict(f) for f in result.validated],

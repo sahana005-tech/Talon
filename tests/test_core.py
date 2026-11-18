@@ -299,6 +299,48 @@ class TestRenderMode(unittest.TestCase):
         self.assertIn("echo", {s["url"].rsplit("/", 1)[-1] for s in rendered.surfaces})
 
 
+class TestRequestRetry(unittest.TestCase):
+    def _client(self):
+        s = Scope.from_targets(["https://example.com"], authorized=True)
+        return WebClient(s, rate=0, retry_backoff=0)
+
+    def test_transient_error_is_retried_then_succeeds(self):
+        import urllib.error
+        from talon.web import Response
+        c = self._client()
+        calls = {"n": 0}
+
+        class _Resp:                       # minimal context-manager stand-in
+            status = 200
+            headers = {}
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return b"<html>ok</html>"
+            def geturl(self): return "https://example.com/"
+
+        def flaky(req, timeout=None):
+            calls["n"] += 1
+            if calls["n"] < 3:             # fail twice, then succeed
+                raise urllib.error.URLError("connection reset")
+            return _Resp()
+
+        c._opener.open = flaky
+        r = c.request("https://example.com/")
+        self.assertEqual(r.status, 200)
+        self.assertEqual(calls["n"], 3)
+        self.assertEqual(c.errors, 0)
+
+    def test_persistent_error_is_counted_not_hidden(self):
+        import urllib.error
+        c = self._client()
+        c._opener.open = lambda req, timeout=None: (_ for _ in ()).throw(
+            urllib.error.URLError("down"))
+        r = c.request("https://example.com/")
+        self.assertEqual(r.status, 0)
+        self.assertTrue(r.error)
+        self.assertEqual(c.errors, 1)      # surfaced, so a scan can warn about it
+
+
 class TestLlmProvider(unittest.TestCase):
     def test_openai_compatible_uses_base_url(self):
         posted = {}

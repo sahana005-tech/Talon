@@ -70,13 +70,18 @@ class WebClient:
         timeout: float = 15.0,
         max_requests: int = 500,
         user_agent: str = DEFAULT_UA,
+        retries: int = 2,
+        retry_backoff: float = 1.0,
     ):
         self.scope = scope
         self.rate = rate
         self.timeout = timeout
         self.max_requests = max_requests
         self.user_agent = user_agent
+        self.retries = retries
+        self.retry_backoff = retry_backoff
         self.count = 0
+        self.errors = 0          # requests that failed after all retries
         self.log: list[Exchange] = []
         self._last = 0.0
         # Opener that never follows redirects, so we can see Location headers.
@@ -110,33 +115,48 @@ class WebClient:
             req_headers.update(headers)
         req = urllib.request.Request(url, data=data, headers=req_headers, method=method)
 
+        # Transient network errors (dropped connection, timeout, throttling) are
+        # retried with a short backoff. Without this, a flaky/rate-limiting server
+        # turns a real finding into a silent miss — the opposite of what a
+        # validation-first scanner should do.
         start = time.monotonic()
-        try:
-            with self._opener.open(req, timeout=self.timeout) as resp:
-                raw = resp.read()
+        response: Response | None = None
+        last_err = ""
+        for attempt in range(self.retries + 1):
+            try:
+                with self._opener.open(req, timeout=self.timeout) as resp:
+                    raw = resp.read()
+                    response = Response(
+                        url=resp.geturl(), status=resp.status,
+                        headers=dict(resp.headers.items()), body=_decode(raw),
+                        elapsed_ms=int((time.monotonic() - start) * 1000),
+                    )
+                break
+            except urllib.error.HTTPError as e:
+                # A valid response we want to inspect (3xx captured by the
+                # no-redirect handler, 4xx, 5xx). Not a transient error.
+                raw = e.read() if hasattr(e, "read") else b""
                 response = Response(
-                    url=resp.geturl(),
-                    status=resp.status,
-                    headers=dict(resp.headers.items()),
+                    url=url, status=e.code,
+                    headers=dict(e.headers.items()) if e.headers else {},
                     body=_decode(raw),
                     elapsed_ms=int((time.monotonic() - start) * 1000),
                 )
-        except urllib.error.HTTPError as e:
-            # HTTPError is still a valid response we want to inspect (incl. 3xx
-            # captured by the no-redirect handler, 4xx, 5xx).
-            raw = e.read() if hasattr(e, "read") else b""
-            response = Response(
-                url=url,
-                status=e.code,
-                headers=dict(e.headers.items()) if e.headers else {},
-                body=_decode(raw),
-                elapsed_ms=int((time.monotonic() - start) * 1000),
-            )
-        except (urllib.error.URLError, OSError, ScopeError) as e:
+                break
+            except (urllib.error.URLError, OSError) as e:
+                last_err = str(e)
+                if attempt < self.retries:
+                    time.sleep(self.retry_backoff * (attempt + 1))
+                    continue
+            except ScopeError as e:
+                last_err = str(e)
+                break
+        if response is None:
+            self.errors += 1
             response = Response(
                 url=url, status=0, headers={}, body="",
                 elapsed_ms=int((time.monotonic() - start) * 1000),
-                error=str(e),
+                error=last_err or "request failed",
             )
 
         self.log.append(
