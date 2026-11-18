@@ -193,7 +193,7 @@ class Crawler:
         if method == "GET":
             surfaces[key] = Surface(url=url_with(base, params), params=params)
         else:
-            surfaces[key] = Surface(url=base, params=params, method="POST")
+            surfaces[key] = Surface(url=base, params=params, method="POST", encoding="form")
 
     def _register_param_surface(self, url: str, surfaces: dict[str, Surface]) -> None:
         parsed = urlparse(url)
