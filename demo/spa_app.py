@@ -16,17 +16,27 @@ DO NOT expose this to a network. Local demonstration only.
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
 
-# The shell holds no links/forms in its HTML — JS injects them after load.
+# The shell holds no links/forms in its HTML — JS injects them AND calls the
+# backend API after load, the way a real single-page app does. The API URLs
+# (/api/*) live only in this JavaScript, so they are invisible to a crawler
+# that reads the DOM; only --render's network capture discovers them.
 SHELL = """<!doctype html><html><head><title>SPA demo</title></head>
 <body><div id="app">Loading…</div>
 <script>
-  // Simulate a client-rendered app: build the UI after a tick.
   setTimeout(function () {
     document.getElementById('app').innerHTML =
       '<h1>Dashboard</h1>' +
       '<a href="/search?q=hello">search</a> ' +
       '<a href="/go?url=/search?q=hi">open redirector</a>' +
       '<form action="/find" method="get"><input name="term"><button>go</button></form>';
+    // Data calls the DOM never shows — the real attack surface:
+    fetch('/api/greet?name=world');                              // GET XHR
+    fetch('/api/contact', {method: 'POST',                       // POST form
+      headers: {'content-type': 'application/x-www-form-urlencoded'},
+      body: 'name=world&message=hi'});
+    fetch('/api/login', {method: 'POST',                         // POST JSON
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify({email: 'a@example.com', password: 'x'})});
   }, 50);
 </script></body></html>"""
 
@@ -50,6 +60,28 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(302)          # VULN: unvalidated redirect
             self.send_header("Location", dest)
             self.end_headers()
+            return
+        if u.path == "/api/greet":
+            name = q.get("name", [""])[0]
+            # VULN: API reflects input into an HTML response unescaped
+            return self._html(200, f"<!doctype html><html><body>Hi {name}</body></html>")
+        return self._html(404, "<h1>404</h1>")
+
+    def do_POST(self):
+        u = urlparse(self.path)
+        n = int(self.headers.get("Content-Length", 0))
+        raw = self.rfile.read(n).decode("utf-8", "replace")
+        if u.path == "/api/contact":
+            name = parse_qs(raw).get("name", [""])[0]
+            # VULN: reflected form field into HTML unescaped
+            return self._html(200, f"<!doctype html><html><body>Thanks {name}</body></html>")
+        if u.path == "/api/login":
+            # A normal JSON API: not an XSS sink, but should appear in the inventory.
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            body = b'{"ok": false, "error": "invalid credentials"}'
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers(); self.wfile.write(body)
             return
         return self._html(404, "<h1>404</h1>")
 

@@ -111,7 +111,9 @@ def to_markdown(result: ScanResult) -> str:
         a("|--------|-----|------------|")
         for s in result.surfaces:
             ps = ", ".join(f"`{p}`" for p in s["params"]) or "—"
-            a(f"| {s['method']} | {s['url']} | {ps} |")
+            enc = s.get("encoding", "query")
+            tag = s["method"] + (f" ({enc})" if s["method"] == "POST" else "")
+            a(f"| {tag} | {s['url']} | {ps} |")
         a("")
 
     # Agent reasoning trace (transparency)

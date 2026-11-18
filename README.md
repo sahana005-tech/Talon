@@ -43,10 +43,17 @@ by JavaScript in the browser. The default crawler reads raw HTML, so on those
 sites it sees the empty shell and finds little.
 
 `--render` fixes that. It loads each in-scope page in a **headless browser**,
-lets the JavaScript run, then reads the live DOM for links and forms — the real
-attack surface. The vulnerability checks are unchanged: they still send plain
-HTTP requests, so every finding's proof is still a reproducible request. The
-browser is used only to *discover* what to test.
+lets the JavaScript run, then reads the live DOM for links and forms *and*
+**captures the API calls the page makes** (fetch/XHR and form submissions) — so
+the backend endpoints behind a single-page app (e.g. `/api/login`,
+`/api/search?q=`) become part of the attack surface, even though their URLs
+live only in the JavaScript. The vulnerability checks are unchanged: they still
+send plain HTTP requests, so every finding's proof is still a reproducible
+request. The browser is used only to *discover* what to test.
+
+Captured POST endpoints are replayed with the same encoding they were seen with
+(form-urlencoded or JSON). Reflected XSS is tested on all of them; open-redirect
+and IDOR remain GET-only (Talon never re-submits a state-changing POST).
 
 One-time setup:
 
@@ -66,7 +73,7 @@ See it on the bundled single-page-app demo (its links/forms are built by JS):
 ```bash
 python3 demo/spa_app.py &                                   # 127.0.0.1:8020
 python3 -m talon -t http://127.0.0.1:8020 --authorize --allow-local            # finds nothing
-python3 -m talon -t http://127.0.0.1:8020 --authorize --allow-local --render   # finds all three
+python3 -m talon -t http://127.0.0.1:8020 --authorize --allow-local --render   # finds the DOM + the JS-only /api/* endpoints
 ```
 
 Notes & limits:

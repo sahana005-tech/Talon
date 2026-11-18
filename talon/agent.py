@@ -100,7 +100,9 @@ class Agent:
             try:
                 surfaces = crawler.crawl(targets)
                 result.rendered = crawler.pages_rendered
-                self._think(f"MAP: rendered {crawler.pages_rendered} page(s) with JS.")
+                self._think(f"MAP: rendered {crawler.pages_rendered} page(s) with JS; "
+                            f"captured {crawler.captured} API/form call(s) from "
+                            f"network traffic.")
             except RenderError as e:
                 raise RenderError(str(e)) from None
         else:
@@ -115,12 +117,14 @@ class Agent:
         self._think(f"MAP: {len(surfaces)} surface(s) discovered; "
                     f"{sum(len(s.params) for s in surfaces)} parameter(s).")
         result.surfaces = [
-            {"method": s.method, "url": s.url.split("?")[0], "params": sorted(s.params)}
+            {"method": s.method, "encoding": s.encoding,
+             "url": s.url.split("?")[0], "params": sorted(s.params)}
             for s in surfaces
         ]
         for s in result.surfaces:                       # make the surface visible
             ps = ", ".join(s["params"]) or "(no params)"
-            self._think(f"MAP: surface  {s['method']:4} {s['url']}  [{ps}]")
+            tag = s["method"] + (f"/{s['encoding']}" if s["method"] == "POST" else "")
+            self._think(f"MAP: surface  {tag:11} {s['url']}  [{ps}]")
 
         # TEST
         check_instances = [ALL_CHECKS[cid](client, context) for cid in self.check_ids]

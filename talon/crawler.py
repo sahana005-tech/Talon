@@ -29,14 +29,19 @@ class Surface:
     url: str                       # URL without query string
     params: dict[str, str] = field(default_factory=dict)   # params + values
     forms: list[Form] = field(default_factory=list)
-    method: str = "GET"            # "GET" (query) or "POST" (form body)
+    method: str = "GET"            # "GET" or "POST"
+    encoding: str = "query"        # how a value is carried: "query" | "form" | "json"
+
+    def _body(self, name: str, value: str) -> tuple[bytes, str]:
+        """Return (body bytes, content-type) for a POST with `name`=`value`."""
+        merged = {**self.params, name: value}
+        if self.encoding == "json":
+            import json
+            return json.dumps(merged).encode(), "application/json"
+        return urlencode(merged).encode(), "application/x-www-form-urlencoded"
 
     def with_param(self, name: str, value: str) -> str:
-        """Build a URL identical to this surface but with one param overridden.
-
-        For GET the override lands in the query string; for POST the body is
-        sent separately (see `mutate`), and this returns the bare action URL.
-        """
+        """GET URL with one param overridden (bare action URL for POST)."""
         if self.method == "POST":
             return self.url
         merged = dict(self.params)
@@ -45,35 +50,29 @@ class Surface:
         return urlunparse(parsed._replace(query=urlencode(merged)))
 
     def mutate(self, name: str, value: str) -> dict:
-        """Return kwargs for WebClient.request that set `name` to `value`.
+        """Kwargs for WebClient.request that set `name` to `value`.
 
-        GET -> the value goes in the query string. POST -> it goes in a urlencoded
-        form body, with the matching Content-Type.
+        GET -> query string. POST -> a urlencoded or JSON body, matching how the
+        endpoint was observed to be called.
         """
-        merged = dict(self.params)
-        merged[name] = value
         if self.method == "POST":
-            return {
-                "url": self.url,
-                "method": "POST",
-                "data": urlencode(merged).encode(),
-                "headers": {"Content-Type": "application/x-www-form-urlencoded"},
-            }
+            data, ctype = self._body(name, value)
+            return {"url": self.url, "method": "POST", "data": data,
+                    "headers": {"Content-Type": ctype}}
         return {"url": self.with_param(name, value)}
 
     def shown(self, name: str, value: str) -> str:
         """Human-readable one-line form of that request, for PoCs/evidence."""
         if self.method == "POST":
-            body = urlencode({**self.params, name: value})
-            return f"POST {self.url}\n  body: {body}"
+            data, ctype = self._body(name, value)
+            return f"POST {self.url}\n  content-type: {ctype}\n  body: {data.decode('utf-8', 'replace')}"
         return f"GET {self.with_param(name, value)}"
 
     def curl(self, name: str, value: str) -> str:
         if self.method == "POST":
-            body = urlencode({**self.params, name: value})
-            return (f"curl -sS -i -X POST "
-                    f"-H 'Content-Type: application/x-www-form-urlencoded' "
-                    f"--data {body!r} {self.url!r}")
+            data, ctype = self._body(name, value)
+            return (f"curl -sS -i -X POST -H 'Content-Type: {ctype}' "
+                    f"--data {data.decode('utf-8', 'replace')!r} {self.url!r}")
         return f"curl -sS -i {self.with_param(name, value)!r}"
 
 

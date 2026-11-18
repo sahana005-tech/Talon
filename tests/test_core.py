@@ -243,8 +243,10 @@ class TestScopeOrigin(unittest.TestCase):
 
 
 _SHELL = """<!doctype html><html><body><div id=app>Loading…</div><script>
-setTimeout(function(){document.getElementById('app').innerHTML =
-  '<a href="/search?q=hi">s</a>';}, 20);
+setTimeout(function(){
+  document.getElementById('app').innerHTML = '<a href="/search?q=hi">s</a>';
+  fetch('/api/echo?msg=hi');   // API call only in JS — DOM crawl can't see it
+}, 20);
 </script></body></html>"""
 
 
@@ -258,6 +260,8 @@ class _SpaApp(BaseHTTPRequestHandler):
             body = _SHELL
         elif u.path == "/search":
             body = f"<html><body><p>{q.get('q', [''])[0]}</p></body></html>"   # VULN: unescaped
+        elif u.path == "/api/echo":
+            body = f"<html><body>{q.get('msg', [''])[0]}</body></html>"        # VULN: unescaped
         else:
             body = "<h1>404</h1>"
         data = body.encode()
@@ -288,7 +292,11 @@ class TestRenderMode(unittest.TestCase):
         rendered = Agent(scope, checks=["reflected-xss"], rate=0, render=True,
                          render_wait=400).scan([self.base])
         self.assertGreaterEqual(rendered.rendered, 1)
-        self.assertEqual({f.url.rsplit("/", 1)[-1] for f in rendered.validated}, {"search"})
+        found = {f.url.rsplit("/", 1)[-1] for f in rendered.validated}
+        # Render finds the DOM link (/search) AND the JS-only API call (/api/echo)
+        # that network capture observed — the whole point of capture.
+        self.assertEqual(found, {"search", "echo"})
+        self.assertIn("echo", {s["url"].rsplit("/", 1)[-1] for s in rendered.surfaces})
 
 
 class TestLlmProvider(unittest.TestCase):

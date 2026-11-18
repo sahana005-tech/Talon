@@ -29,13 +29,19 @@ The Playwright import is deliberately lazy (inside functions), so importing
 """
 from __future__ import annotations
 
+import json
 import time
 from collections import deque
-from urllib.parse import urljoin
+from urllib.parse import parse_qsl, urljoin, urlparse, urlunparse
 
 from .crawler import Crawler, Form, Surface
 from .scope import Scope
 from .web import DEFAULT_UA, WebClient
+
+# Request types worth capturing: the data calls a page makes, not its assets.
+_CAPTURE_TYPES = {"xhr", "fetch"}
+_SKIP_TYPES = {"image", "stylesheet", "font", "media", "script", "manifest", "other"}
+_MAX_CAPTURED = 80
 
 
 class RenderError(RuntimeError):
@@ -108,6 +114,8 @@ class BrowserCrawler:
         self.nav_timeout_ms = nav_timeout_ms
         self.budget_exhausted = False      # parity with Crawler
         self.pages_rendered = 0
+        self.captured = 0                  # API calls turned into surfaces
+        self._seen_api: set[str] = set()
         self._last = 0.0
         # Reused only for its surface-building helpers (no requests are sent
         # through it here; the checks use `client` later for raw HTTP).
@@ -118,6 +126,71 @@ class BrowserCrawler:
         if wait > 0:
             time.sleep(wait)
         self._last = time.monotonic()
+
+    def _capture(self, req, surfaces: dict) -> None:
+        """Turn an observed fetch/XHR/form request into a testable Surface.
+
+        Only in-scope requests that actually carry parameters (a query string or
+        a parseable body) become surfaces; assets and empty calls are ignored.
+        A page submitting a form, or JS calling its own API, is exactly the
+        surface the DOM alone could not reveal.
+        """
+        try:
+            rtype = req.resource_type
+            method = (req.method or "GET").upper()
+            is_form_post = method == "POST" and rtype in ("document", "other", "fetch", "xhr")
+            if rtype not in _CAPTURE_TYPES and not is_form_post:
+                return
+            if rtype in _SKIP_TYPES and not is_form_post:
+                return
+            url = req.url
+            if not self.scope.in_scope(url):
+                return
+            parsed = urlparse(url)
+            base = urlunparse(parsed._replace(query="", fragment=""))
+
+            if method == "GET":
+                params = dict(parse_qsl(parsed.query, keep_blank_values=True))
+                if not params:
+                    return
+                surface = Surface(url=base, params=params, method="GET")
+                key = f"GET {base}?{','.join(sorted(params))}"
+            else:
+                body = req.post_data
+                if not body:
+                    return
+                ctype = (req.headers or {}).get("content-type", "").lower()
+                params, encoding = self._parse_body(body, ctype)
+                if not params:
+                    return
+                surface = Surface(url=base, params=params, method="POST", encoding=encoding)
+                key = f"POST[{encoding}] {base}?{','.join(sorted(params))}"
+
+            if key in self._seen_api or len(self._seen_api) >= _MAX_CAPTURED:
+                return
+            self._seen_api.add(key)
+            surfaces[key] = surface
+            self.captured += 1
+        except Exception:
+            return  # capture is best-effort; never break the crawl
+
+    @staticmethod
+    def _parse_body(body: str, ctype: str) -> tuple[dict, str]:
+        """(params, encoding) from a request body; {} if not injectable here."""
+        if "application/json" in ctype or (body.lstrip()[:1] in "{["):
+            try:
+                obj = json.loads(body)
+            except Exception:
+                return {}, "json"
+            if isinstance(obj, dict):
+                # Only flat string/number fields are injectable in this version.
+                flat = {k: ("" if v is None else str(v))
+                        for k, v in obj.items() if isinstance(v, (str, int, float, bool))}
+                return flat, "json"
+            return {}, "json"
+        if "x-www-form-urlencoded" in ctype or ("=" in body and "\n" not in body):
+            return dict(parse_qsl(body, keep_blank_values=True)), "form"
+        return {}, "form"
 
     def crawl(self, seeds: list[str]) -> list[Surface]:
         ensure_available()
@@ -132,6 +205,9 @@ class BrowserCrawler:
         with sync_playwright() as pw:
             browser = pw.chromium.launch(headless=True)
             context = browser.new_context(user_agent=DEFAULT_UA)
+            # Capture the data calls (fetch/XHR/form POST) the pages make, so the
+            # API endpoints behind a JS app become part of the attack surface.
+            context.on("request", lambda req: self._capture(req, surfaces))
             page = context.new_page()
             page.set_default_navigation_timeout(self.nav_timeout_ms)
             try:
